@@ -1,0 +1,14 @@
+# The free web version of Postbarrel Vid Editor: static files only, no server
+# code, its own Cloudflare project, nothing shared with Postbarrel.
+# Security headers come from public/_headers (copied into dist/).
+name = "postbarrel-vid-editor-web"
+compatibility_date = "2026-10-01"
+
+[assets]
+directory = "./dist"
+not_found_handling = "single-page-application"
+
+# The temporary test address (*.workers.dev) while it is checked; the custom
+# domain editor.postbarrel.com is added separately.
+workers_dev = true
+preview_urls = false

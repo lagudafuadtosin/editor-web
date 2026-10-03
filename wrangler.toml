@@ -4,11 +4,14 @@
 name = "postbarrel-vid-editor-web"
 compatibility_date = "2026-10-01"
 
+# Served only at editor.postbarrel.com (Cloudflare creates its DNS record).
+# The *.workers.dev test address is off. If this project is ever deleted,
+# delete the editor record in the postbarrel.com zone too, so nobody else can
+# claim the name.
+routes = [{ pattern = "editor.postbarrel.com", custom_domain = true }]
+workers_dev = false
+preview_urls = false
+
 [assets]
 directory = "./dist"
 not_found_handling = "single-page-application"
-
-# The temporary test address (*.workers.dev) while it is checked; the custom
-# domain editor.postbarrel.com is added separately.
-workers_dev = true
-preview_urls = false

@@ -318,9 +318,3 @@ kbd { font: 12px ui-monospace, monospace; padding: 2px 7px; border-radius: 5px; 
 /* ===== Web version ===== */
 .edition { font-size: 11px; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-ink); background: var(--accent); padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
 .banner-link { color: var(--accent); font-weight: 700; white-space: nowrap; }
-.unsupported { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; padding: 24px; text-align: center; }
-.unsupported img { width: 64px; height: 64px; border-radius: 14px; margin-bottom: 10px; }
-.unsupported h1 { margin: 0 0 10px; font-size: 28px; font-weight: 600; }
-.unsupported h1 b, .unsupported a { color: var(--accent); }
-.unsupported p { margin: 0; max-width: 460px; line-height: 1.5; color: var(--muted); }
-.unsupported p b { color: var(--text); }

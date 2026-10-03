@@ -18,12 +18,13 @@ export function ExportDialog({ sources, project, onClose }: Props) {
 
   async function run() {
     const picker = (window as unknown as { showSaveFilePicker?: SavePicker }).showSaveFilePicker
-    if (!picker) {
-      setMessage('Saving needs Chrome or Edge.')
-      return
-    }
     const firstClip = project.video[0].clips[0]
     const base = (sources.find((s) => s.id === firstClip?.sourceId)?.name ?? 'video').replace(/\.[^.]+$/, '')
+    if (!picker) {
+      // Browsers without the save box: the video is built in memory and handed over as a normal download.
+      await runAsDownload(`${base} edit${container.ext}`)
+      return
+    }
     let handle: SaveHandle
     try {
       handle = await picker({
@@ -44,6 +45,42 @@ export function ExportDialog({ sources, project, onClose }: Props) {
       setMessage(`Saved ${handle.name} in ${((performance.now() - started) / 1000).toFixed(1)} s.`)
     } catch (err) {
       await writable.abort().catch(() => {})
+      const cancelled = err instanceof DOMException && err.name === 'AbortError'
+      setMessage(cancelled ? 'Export cancelled.' : `Export failed: ${err instanceof Error ? err.message : String(err)}`)
+    } finally {
+      setProgress(null)
+      abort.current = null
+    }
+  }
+
+  async function runAsDownload(name: string) {
+    let buf = new Uint8Array(1 << 22)
+    let size = 0
+    const writable = new WritableStream<{ type: 'write'; data: Uint8Array; position: number }>({
+      write(chunk) {
+        const end = chunk.position + chunk.data.byteLength
+        if (end > buf.length) {
+          const bigger = new Uint8Array(Math.max(end, buf.length * 2))
+          bigger.set(buf)
+          buf = bigger
+        }
+        buf.set(chunk.data, chunk.position)
+        size = Math.max(size, end)
+      },
+    })
+    abort.current = new AbortController()
+    setMessage(null)
+    setProgress(0)
+    const started = performance.now()
+    try {
+      await exportProject(sources, project, settings, writable as never, setProgress, abort.current.signal)
+      const a = document.createElement('a')
+      a.href = URL.createObjectURL(new Blob([buf.subarray(0, size)], { type: container.mime }))
+      a.download = name
+      a.click()
+      setTimeout(() => URL.revokeObjectURL(a.href), 60000)
+      setMessage(`${name} is downloading (made in ${((performance.now() - started) / 1000).toFixed(1)} s).`)
+    } catch (err) {
       const cancelled = err instanceof DOMException && err.name === 'AbortError'
       setMessage(cancelled ? 'Export cancelled.' : `Export failed: ${err instanceof Error ? err.message : String(err)}`)
     } finally {

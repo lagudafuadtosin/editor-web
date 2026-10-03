@@ -13,9 +13,10 @@ import { SpeedPanel } from './SpeedPanel'
 import { SoundPanel } from './SoundPanel'
 import { Teleprompter } from './Teleprompter'
 import { InfoMenus } from './InfoMenus'
-import { imageFiles, isImageFile, loadImage, restoreImage } from './images'
+import { imageFiles, loadImage, restoreImage } from './images'
 import { clearAutosave, fileFromHandle, handleFor, keyOf, loadAutosave, rememberHandle, saveAutosave, saveTake, takeFor, type Handle, type Saved } from './persist'
 import { checkFile, DOWNLOAD_URL } from './gate'
+import { browserNoteSeen, browserOk, closeBrowserNote } from './browser'
 import { hitBox, PreviewOverlay } from './PreviewOverlay'
 import { autoLook, NEUTRAL, type Look } from './look'
 import { buildOverview, type Overview } from './overview'
@@ -93,6 +94,8 @@ export default function App() {
   const [restorable, setRestorable] = useState<Saved | null>(null)
   const [missing, setMissing] = useState<{ saved: Saved; ids: string[] } | null>(null)
   const [askNew, setAskNew] = useState(false)
+  // Not Chrome or Edge on a computer: a note at the top, once, that can be closed.
+  const [browserNote, setBrowserNote] = useState(() => !browserOk() && !browserNoteSeen())
   const [mode, setMode] = useState<'edit' | 'prompt'>('edit')
   const [checked, setChecked] = useState<'waiting' | 'ok' | 'failed'>('waiting') // has the saved edit been looked for
   const [autoBusy, setAutoBusy] = useState(false)
@@ -149,7 +152,7 @@ export default function App() {
         setError(`${file.name}: ${verdict.reason}`)
         return
       }
-      if (isImageFile(file)) {
+      if (verdict.kind === 'picture') {
         // A picture: 5 seconds on a layer at the playhead, fitted to the frame.
         const { id, bitmap } = await loadImage(file)
         const clip: Clip = { id: newId('c'), kind: 'image', imageId: id, imageSize: [bitmap.width, bitmap.height], label: file.name, start: 0, in: 0, out: 5 }
@@ -651,6 +654,12 @@ export default function App() {
       <input ref={pickRef} type="file" multiple accept="video/*,audio/*,image/*,.avi,.mkv,.mov,.webm,.mp4,.ts,.mp3,.wav,.m4a,.flac,.ogg,.png,.jpg,.jpeg,.webp" onChange={onPick} hidden />
       <div className="notices">
 
+      {browserNote && (
+        <div className="banner warn">
+          <span>This editor works best in Chrome or Microsoft Edge on a computer. Some things, like saving straight into a folder, may not work here.</span>
+          <button onClick={() => { closeBrowserNote(); setBrowserNote(false) }}>Close</button>
+        </div>
+      )}
       {restorable && (
         <div className="banner">
           <span>Your last edit from {new Date(restorable.savedAt).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' })} is saved in this browser.</span>

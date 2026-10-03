@@ -1,4 +1,4 @@
-import { ALL_FORMATS, BlobSource, Input, type InputAudioTrack, type InputVideoTrack } from 'mediabunny'
+import { MP4, QTFF, WAVE, MP3, ADTS, FLAC, OGG, BlobSource, Input, type InputAudioTrack, type InputVideoTrack } from 'mediabunny'
 
 export type MediaInfo = {
   fileName: string
@@ -33,13 +33,19 @@ export type OpenedMedia = {
 // Nothing is uploaded: BlobSource reads the File in place, a slice at a time.
 export async function openMedia(original: File): Promise<OpenedMedia> {
   const file = original
-  const input = new Input({ formats: ALL_FORMATS, source: new BlobSource(file) })
+  // Only the formats the editor uses. Mediabunny can also read streaming playlists (HLS), which fetch from the
+  // internet; that reader is left out on purpose.
+  const input = new Input({ formats: [MP4, QTFF, WAVE, MP3, ADTS, FLAC, OGG], source: new BlobSource(file) })
   const format = await input.getFormat()
   const duration = await input.computeDuration()
   const videoTrack = await input.getPrimaryVideoTrack()
   const audioTrack = await input.getPrimaryAudioTrack()
 
   let video: MediaInfo['video'] = null
+  // A crafted file can claim an enormous picture to fill the memory; anything over 8192 pixels a side is refused.
+  if (videoTrack && (videoTrack.displayWidth > 8192 || videoTrack.displayHeight > 8192)) {
+    throw new Error(`the video is ${videoTrack.displayWidth} × ${videoTrack.displayHeight}, and videos can be up to 8192 pixels a side`)
+  }
   if (videoTrack) {
     const stats = await videoTrack.computePacketStats(100)
     video = {

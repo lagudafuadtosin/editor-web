@@ -96,7 +96,8 @@ export default function App() {
   const [askNew, setAskNew] = useState(false)
   // Not Chrome or Edge on a computer: a note at the top, once, that can be closed.
   const [browserNote, setBrowserNote] = useState(() => !browserOk() && !browserNoteSeen())
-  const [mode, setMode] = useState<'edit' | 'prompt'>('edit')
+  // editor.postbarrel.com/?teleprompter opens straight on the teleprompter (the "Use the free teleprompter" link).
+  const [mode, setMode] = useState<'edit' | 'prompt'>(() => (new URLSearchParams(window.location.search).has('teleprompter') ? 'prompt' : 'edit'))
   const [checked, setChecked] = useState<'waiting' | 'ok' | 'failed'>('waiting') // has the saved edit been looked for
   const [autoBusy, setAutoBusy] = useState(false)
   // Pictures and sound wave for each opened file, filled in the background after it is added.

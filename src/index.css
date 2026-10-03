@@ -1,0 +1,49 @@
+/* Postbarrel Vid Editor colours. Dark is the look; grey is the lighter choice (top bar, sun button). */
+:root,
+:root[data-theme='dark'] {
+  --bg: #0e0e10;
+  --surface: #17171a;
+  --surface-2: #202024;
+  --surface-3: #2a2a30;
+  --line: #2c2c33;
+  --text: #ececf1;
+  --muted: #9b9ba6;
+  --accent: #f5e642; /* the Postbarrel highlighter yellow */
+  --accent-ink: #16161a;
+  --focus: #4f8cff;
+  --danger: #ef4444;
+  --track: #131316;
+  --track-main: #19191d;
+  --track-audio: #121a16;
+  --ruler: #141417;
+  --shadow: 0 10px 40px #000a;
+  color-scheme: dark;
+}
+:root[data-theme='grey'] {
+  --bg: #47474c;
+  --surface: #55555b;
+  --surface-2: #616167;
+  --surface-3: #6c6c73;
+  --line: #707078;
+  --text: #f5f5f7;
+  --muted: #d6d6dc;
+  --track: #4e4e53;
+  --track-main: #58585e;
+  --track-audio: #4b5850;
+  --ruler: #505056;
+  --shadow: 0 10px 40px #0006;
+  color-scheme: dark;
+}
+:root {
+  font-family: 'Segoe UI Variable', 'Segoe UI', system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  accent-color: var(--accent);
+}
+html, body, #root { height: 100%; }
+body { margin: 0; overflow: hidden; background: var(--bg); }
+button, input, select, textarea { font: inherit; color: inherit; }
+::-webkit-scrollbar { width: 10px; height: 10px; }
+::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-track { background: transparent; }

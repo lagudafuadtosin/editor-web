@@ -1,0 +1,13 @@
+# Monthly check for updates to every package the web editor uses (asked for 4 Oct 2026).
+# Dependabot opens one pull request each month listing what has a new version;
+# nothing changes until it is merged. Security fixes are raised as soon as published.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 5
+    groups:
+      web-packages:
+        patterns: ["*"]

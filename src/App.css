@@ -524,3 +524,4 @@ kbd { font: 12px ui-monospace, monospace; padding: 2px 7px; border-radius: 5px; 
 .writer-question { display: flex; flex-direction: column; gap: 10px; max-width: 640px; }
 .writer-ask { margin: 0; font-size: 17px; font-weight: 600; }
 .writer-question textarea { min-height: 120px; resize: vertical; padding: 10px; border-radius: 8px; font-size: 14px; line-height: 1.5; }
+.writer-check { min-height: 65px; }

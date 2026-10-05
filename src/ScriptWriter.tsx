@@ -1,9 +1,11 @@
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // Web version: the free script writer. The person pastes everything they want to say, picks the
 // kind of video and the length, and gets a script to read in the teleprompter. The notes go to
 // editor.postbarrel.com/write, which asks an open model hosted in the EU and keeps nothing.
 // Five scripts a day for each person. No research: the script is built only from their notes.
+// Cloudflare's Turnstile check runs in the tab: every request carries a fresh token, which the
+// server checks before anything else (worker/write.js in editor-web).
 
 const KINDS: [string, string][] = [
   ['review', 'Review: film, series, anime, book or game'],
@@ -25,6 +27,31 @@ const LENGTHS: [string, string][] = [
 ]
 
 const MAX = 4000
+const SITEKEY = '0x4AAAAAAFOUMfvDIY_tOjR4' // public site key of the "Vid Editor script writer" widget
+
+type Turnstile = {
+  render: (el: HTMLElement, opts: Record<string, unknown>) => string
+  reset: (id: string) => void
+  remove: (id: string) => void
+}
+declare global {
+  interface Window { turnstile?: Turnstile }
+}
+
+// Cloudflare's script, added once, the first time the Script tab opens
+let loading: Promise<void> | null = null
+function loadTurnstile(): Promise<void> {
+  if (window.turnstile) return Promise.resolve()
+  loading ??= new Promise((resolve, reject) => {
+    const el = document.createElement('script')
+    el.src = 'https://challenges.cloudflare.com/turnstile/v0/api.js?render=explicit'
+    el.async = true
+    el.onload = () => resolve()
+    el.onerror = () => { loading = null; reject(new Error('turnstile')) }
+    document.head.appendChild(el)
+  })
+  return loading
+}
 
 export function ScriptWriter({ active, onUse }: { active: boolean; onUse: (script: string) => void }) {
   const [notes, setNotes] = useState('')
@@ -37,9 +64,39 @@ export function ScriptWriter({ active, onUse }: { active: boolean; onUse: (scrip
   // The one question the writer may ask when the notes are missing something, and the answer to it.
   const [question, setQuestion] = useState<string | null>(null)
   const [answer, setAnswer] = useState('')
+  // The bot check: its box, its id, and the token it gives once it has passed
+  const boxRef = useRef<HTMLDivElement>(null)
+  const widgetId = useRef<string | null>(null)
+  const [token, setToken] = useState('')
+  const [checkFailed, setCheckFailed] = useState(false)
+
+  useEffect(() => {
+    if (!active || widgetId.current) return
+    let gone = false
+    loadTurnstile()
+      .then(() => {
+        if (gone || !boxRef.current || !window.turnstile || widgetId.current) return
+        widgetId.current = window.turnstile.render(boxRef.current, {
+          sitekey: SITEKEY,
+          action: 'script',
+          size: 'flexible',
+          callback: (t: string) => { setToken(t); setCheckFailed(false) },
+          'expired-callback': () => setToken(''),
+          'error-callback': () => { setToken(''); setCheckFailed(true) },
+        })
+      })
+      .catch(() => setCheckFailed(true))
+    return () => { gone = true }
+  }, [active])
+
+  // A token works once, so after every request the check runs again for the next one
+  function freshCheck() {
+    setToken('')
+    if (widgetId.current && window.turnstile) window.turnstile.reset(widgetId.current)
+  }
 
   async function write(how: 'ask' | 'answer' | 'anyway' = 'ask') {
-    if (busy || notes.trim().length < 20) return
+    if (busy || notes.trim().length < 20 || !token) return
     setBusy(true)
     setError(null)
     setCopied(false)
@@ -51,6 +108,7 @@ export function ScriptWriter({ active, onUse }: { active: boolean; onUse: (scrip
           notes: notes.slice(0, MAX),
           kind,
           length,
+          turnstile: token,
           ...(how === 'answer' && question ? { question, answer } : {}),
           ...(how === 'anyway' ? { skipProbe: true } : {}),
         }),
@@ -71,6 +129,7 @@ export function ScriptWriter({ active, onUse }: { active: boolean; onUse: (scrip
       setError('That did not reach the writer. Check your connection and try again.')
     } finally {
       setBusy(false)
+      freshCheck()
     }
   }
 
@@ -97,7 +156,9 @@ export function ScriptWriter({ active, onUse }: { active: boolean; onUse: (scrip
             {LENGTHS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
           </select>
         </label>
-        <button className="primary" disabled={busy || short} onClick={() => void write()}>
+        <div ref={boxRef} className="writer-check" />
+        {checkFailed && <p className="note warn-text">The check that you are a person could not load. Reload the page and try again.</p>}
+        <button className="primary" disabled={busy || short || !token} onClick={() => void write()}>
           {busy ? 'Writing, about 20 seconds' : 'Write my script'}
         </button>
         <p className="note">Free: 5 scripts a day. Written only from your notes, nothing is looked up. Your notes are not kept.</p>
@@ -112,10 +173,10 @@ export function ScriptWriter({ active, onUse }: { active: boolean; onUse: (scrip
             <p className="writer-ask">{question}</p>
             <textarea value={answer} maxLength={1500} onChange={(e) => setAnswer(e.target.value)} placeholder="Your answer" />
             <div className="writer-actions">
-              <button className="primary" disabled={busy || !answer.trim()} onClick={() => void write('answer')}>
+              <button className="primary" disabled={busy || !answer.trim() || !token} onClick={() => void write('answer')}>
                 {busy ? 'Writing, about 20 seconds' : 'Write my script'}
               </button>
-              <button disabled={busy} onClick={() => void write('anyway')}>Write it anyway</button>
+              <button disabled={busy || !token} onClick={() => void write('anyway')}>Write it anyway</button>
             </div>
           </div>
         ) : script ? (

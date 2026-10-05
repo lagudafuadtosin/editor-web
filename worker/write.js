@@ -96,6 +96,28 @@ function parse(text) {
   return { title: '', script }
 }
 
+// The bot check: the page's Turnstile token must pass Cloudflare's siteverify, for this action and
+// for the editor's own address, before anything else happens. Tokens work once only.
+const TURNSTILE_ACTION = 'script'
+
+async function human(env, token, ip) {
+  const hostnames = new Set((env.TURNSTILE_HOSTNAMES ?? '').split(',').map((h) => h.trim()).filter(Boolean))
+  if (typeof token !== 'string' || !token || token.length > 2048 || hostnames.size === 0 || !env.TURNSTILE_SECRET) return false
+  try {
+    const r = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      signal: AbortSignal.timeout(10_000),
+      body: new URLSearchParams({ secret: env.TURNSTILE_SECRET, response: token, remoteip: ip }),
+    })
+    if (!r.ok) return false
+    const result = await r.json()
+    return result.success === true && result.action === TURNSTILE_ACTION && hostnames.has(result.hostname)
+  } catch {
+    return false // fail closed
+  }
+}
+
 // Takes one slot from a counter, in one statement, so parallel requests cannot all slip under
 // the limit. Returns false when the counter is already at the limit.
 async function take(db, day, who, limit) {
@@ -128,13 +150,18 @@ export async function write(request, env, origin) {
   const band = LENGTHS[body?.length] ?? LENGTHS.short
   if (notes.length < 20) return say(400, 'Add a bit more to your notes first.')
 
+  // Not a person, no writer: checked before any slot is taken or any model is asked
+  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown'
+  if (!(await human(env, body?.turnstile, ip))) {
+    return say(403, 'The quick check that you are a person did not pass. Wait for the tick, then try again.')
+  }
+
   const db = env.editor_usage
   const day = new Date().toISOString().slice(0, 10)
   // The month's own row, named so the daily clean-up below never removes it
   const monthKey = `m${day.slice(0, 7)}`
 
   // Only a scrambled form of the address is kept, and only for today.
-  const ip = request.headers.get('CF-Connecting-IP') ?? 'unknown'
   const who = await sha(`${env.IP_SALT}|${day}|${ip}`)
   await db.prepare("delete from write_limits where day < ?1 and day not like 'm%'").bind(day).run()
 

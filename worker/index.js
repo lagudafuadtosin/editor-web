@@ -1,18 +1,20 @@
 // The server code of the web editor: an anonymous daily tally of how much it is used, a weekly
 // email of that tally to the owner, and the free script writer (worker/write.js).
 //
-// POST /count with one of five words adds one to today's number for that word (scripts are counted
-// by /write itself). Nothing else is read or kept: no IP address, no cookie, no id, nothing about the person or their files.
+// POST /count with one of five words counts a PERSON, not a click: each address counts once a day
+// for each word, so the numbers cannot be padded from one machine. For that, a scrambled form of the
+// address is kept for the day only (deleted the next day). Nothing else is read or kept: no cookie,
+// no id, nothing about the person or their files. Scripts are counted by /write itself.
 // Every other request is the static site, served as before.
-import { write } from './write.js'
+import { write, sha } from './write.js'
 
 const EVENTS = {
-  edit: 'Editing sessions (a video, sound or picture added)',
-  export: 'Videos exported',
-  take: 'Teleprompter takes recorded',
-  picture: 'Picture tab sessions (a photo added)',
-  still: 'Pictures saved',
-  script: 'Scripts written by the free writer',
+  edit: 'People who started an edit (added a video, sound or picture)',
+  export: 'People who exported a video',
+  take: 'People who recorded a teleprompter take',
+  picture: 'People who used the Picture tab',
+  still: 'People who saved a picture',
+  script: 'Scripts written by the free writer (at most 5 a person a day)',
 }
 const ORIGIN = 'https://editor.postbarrel.com'
 const OWNER = 'lagudafuad@gmail.com'
@@ -24,11 +26,15 @@ async function count(request, env) {
   const event = (await request.text()).slice(0, 10)
   // Scripts are counted by /write when one is really written, never from the page
   if (!(event in EVENTS) || event === 'script') return new Response(null, { status: 400 })
+  const db = env.editor_usage
   const day = new Date().toISOString().slice(0, 10)
-  await env.editor_usage
-    .prepare('insert into counts (day, event, n) values (?1, ?2, 1) on conflict (day, event) do update set n = n + 1')
-    .bind(day, event)
-    .run()
+  const who = await sha(`${env.IP_SALT}|count|${day}|${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`)
+  await db.prepare('delete from use_seen where day < ?1').bind(day).run()
+  // Only the first time today for this person and this word adds to the number
+  const seen = await db.prepare('insert or ignore into use_seen (day, event, who) values (?1, ?2, ?3)').bind(day, event, who).run()
+  if (seen.meta?.changes === 1) {
+    await db.prepare('insert into counts (day, event, n) values (?1, ?2, 1) on conflict (day, event) do update set n = n + 1').bind(day, event).run()
+  }
   return new Response(null, { status: 204 })
 }
 

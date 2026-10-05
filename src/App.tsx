@@ -19,6 +19,7 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import { IS_WEB, openDownload, DOWNLOAD_URL } from './edition'
 import { Welcome } from './Welcome'
 import { countUse } from './usage'
+import { ScriptWriter } from './ScriptWriter'
 import { checkFile } from './gate'
 import { browserNoteSeen, browserOk, closeBrowserNote } from './browser'
 import { AppMore } from './AppMore'
@@ -67,7 +68,7 @@ import {
 } from './model'
 import {
   Captions, Film, FilePlus, House, FolderOpen, Image as ImageIcon, LayoutGrid, Layers, Moon, Music, Pause, Play, Plus, Redo2, Save, Scissors,
-  ScrollText, SkipBack, SkipForward, Square, Sun, Trash2, Type, Undo2, Upload, Volume2, ZoomIn, ZoomOut, MousePointerClick,
+  PenLine, ScrollText, SkipBack, SkipForward, Square, Sun, Trash2, Type, Undo2, Upload, Volume2, ZoomIn, ZoomOut, MousePointerClick,
 } from 'lucide-react'
 import { defaultShape, drawingFrom, shapeBox, SHAPES, STICKERS, type ShapeKind } from './shape'
 import { ShapePanel } from './ShapePanel'
@@ -199,7 +200,7 @@ export default function App() {
   const [renamingTop, setRenamingTop] = useState(false)
   const [fileHandle, setFileHandle] = useState<ProjectHandle | null>(null)
   // editor.postbarrel.com/?teleprompter opens straight on the teleprompter (the "Use the free teleprompter" link).
-  const [mode, setMode] = useState<'edit' | 'prompt' | 'picture'>(() => (new URLSearchParams(window.location.search).has('teleprompter') ? 'prompt' : 'edit'))
+  const [mode, setMode] = useState<'edit' | 'prompt' | 'picture' | 'script'>(() => (new URLSearchParams(window.location.search).has('teleprompter') ? 'prompt' : 'edit'))
   // Web version: the one saved edit waiting for Carry on or Start new, the Start new question, and the browser note.
   const [restorable, setRestorable] = useState<Saved | null>(null)
   const [askNew, setAskNew] = useState(false)
@@ -1733,7 +1734,7 @@ export default function App() {
 
   // The three tabs. Opening Picture swaps the picture in where the edit's tracks are (the edit waits in the project);
   // leaving it swaps the edit back. Undo starts afresh on each side.
-  function switchTab(next: 'edit' | 'prompt' | 'picture') {
+  function switchTab(next: 'edit' | 'prompt' | 'picture' | 'script') {
     playerRef.current?.pause()
     if (next === 'picture' && !inPicture(project)) {
       setHistory({ past: [], present: toPicture(project), future: [] })
@@ -2028,7 +2029,7 @@ export default function App() {
   // Space play or pause, arrows step a frame (Shift: a second), S split, Delete remove, Ctrl+Z undo, Ctrl+Y redo.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (exporting || confirmRemove || captioning || askNew || (!IS_WEB && !currentId) || renamingTop || mode === 'prompt') return
+      if (exporting || confirmRemove || captioning || askNew || (!IS_WEB && !currentId) || renamingTop || mode === 'prompt' || mode === 'script') return
       // A picture does not play: only undo, redo, delete and nudging work there.
       if (mode === 'picture' && !(e.ctrlKey || e.metaKey || e.code.startsWith('Arrow') || e.code === 'Delete' || e.code === 'Backspace')) return
       const el = e.target as HTMLElement
@@ -2242,6 +2243,7 @@ export default function App() {
         </div>
         <div className="tabs">
           <button title="Edit" className={mode === 'edit' ? 'on' : ''} onClick={blurThen(() => switchTab('edit'))}><Film size={15} /> Edit</button>
+          {IS_WEB && <button title="Write a script from your notes" className={mode === 'script' ? 'on' : ''} onClick={blurThen(() => switchTab('script'))}><PenLine size={15} /> Script</button>}
           <button title="Teleprompter" className={mode === 'prompt' ? 'on' : ''} onClick={blurThen(() => switchTab('prompt'))}><ScrollText size={15} /> Teleprompter</button>
           <button title="Picture" className={mode === 'picture' ? 'on' : ''} onClick={blurThen(() => switchTab('picture'))}><ImageIcon size={15} /> Picture</button>
         </div>
@@ -2404,7 +2406,16 @@ export default function App() {
           saveTake(keyOf(file), file).catch(() => setError('The take is on the timeline but could not be kept in this browser. Save it as a file.'))
         }}
       />
-      <div className="edit-view" hidden={mode === 'prompt'}>
+      {IS_WEB && (
+        <ScriptWriter
+          active={mode === 'script'}
+          onUse={(script) => {
+            setHistory((h) => ({ ...h, present: { ...h.present, script } }))
+            switchTab('prompt')
+          }}
+        />
+      )}
+      <div className="edit-view" hidden={mode === 'prompt' || mode === 'script'}>
       <nav className="rail">
         {!IS_WEB && (
           <>

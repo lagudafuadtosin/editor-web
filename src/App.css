@@ -515,3 +515,12 @@ kbd { font: 12px ui-monospace, monospace; padding: 2px 7px; border-radius: 5px; 
 .welcome-card h2 { display: flex; align-items: center; gap: 8px; margin: 0; font-size: 17px; }
 .welcome-card p { margin: 0 0 6px; flex: 1; color: var(--muted); font-size: 14px; line-height: 1.5; }
 .welcome-card button { justify-content: center; }
+
+/* Web version: the free script writer (Script tab). */
+.writer-result { flex: 1; min-height: 0; resize: none; padding: 16px; border-radius: 10px; font-size: 16px; line-height: 1.6; }
+.writer-actions { display: flex; gap: 10px; }
+.writer-empty { margin: auto; }
+.warn-text { color: #e5a00d; }
+.writer-question { display: flex; flex-direction: column; gap: 10px; max-width: 640px; }
+.writer-ask { margin: 0; font-size: 17px; font-weight: 600; }
+.writer-question textarea { min-height: 120px; resize: vertical; padding: 10px; border-radius: 8px; font-size: 14px; line-height: 1.5; }

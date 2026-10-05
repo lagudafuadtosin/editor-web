@@ -5,8 +5,8 @@
 import { IS_WEB } from './edition'
 
 // edit: a file added to a video edit. picture: a photo added in the Picture tab. export: a video export
-// finished. take: a teleprompter take recorded. still: a picture saved.
-export type UsageEvent = 'edit' | 'picture' | 'export' | 'take' | 'still'
+// finished. take: a teleprompter take recorded. still: a picture saved. script: a script written.
+export type UsageEvent = 'edit' | 'picture' | 'export' | 'take' | 'still' | 'script'
 
 const once = new Set<UsageEvent>()
 

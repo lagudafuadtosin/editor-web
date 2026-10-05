@@ -1,15 +1,18 @@
-// The only server code of the web editor: an anonymous daily tally of how much it is used, and a
-// daily email of that tally to the owner.
+// The server code of the web editor: an anonymous daily tally of how much it is used, a weekly
+// email of that tally to the owner, and the free script writer (worker/write.js).
 //
-// POST /count with one of five words adds one to today's number for that word. Nothing else is
-// read or kept: no IP address, no cookie, no id, nothing about the person or their files.
+// POST /count with one of five words adds one to today's number for that word (scripts are counted
+// by /write itself). Nothing else is read or kept: no IP address, no cookie, no id, nothing about the person or their files.
 // Every other request is the static site, served as before.
+import { write } from './write.js'
+
 const EVENTS = {
   edit: 'Editing sessions (a video, sound or picture added)',
   export: 'Videos exported',
   take: 'Teleprompter takes recorded',
   picture: 'Picture tab sessions (a photo added)',
   still: 'Pictures saved',
+  script: 'Scripts written by the free writer',
 }
 const ORIGIN = 'https://editor.postbarrel.com'
 const OWNER = 'lagudafuad@gmail.com'
@@ -19,7 +22,8 @@ async function count(request, env) {
   if (request.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } })
   if (request.headers.get('Origin') !== ORIGIN) return new Response(null, { status: 403 })
   const event = (await request.text()).slice(0, 10)
-  if (!(event in EVENTS)) return new Response(null, { status: 400 })
+  // Scripts are counted by /write when one is really written, never from the page
+  if (!(event in EVENTS) || event === 'script') return new Response(null, { status: 400 })
   const day = new Date().toISOString().slice(0, 10)
   await env.editor_usage
     .prepare('insert into counts (day, event, n) values (?1, ?2, 1) on conflict (day, event) do update set n = n + 1')
@@ -66,6 +70,9 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url)
     if (url.pathname === '/count') return count(request, env)
+    // ORIGIN in .dev.vars lets a local test through (wrangler dev rewrites Origin to http://editor.postbarrel.com).
+    // Live it is always https://editor.postbarrel.com.
+    if (url.pathname === '/write') return write(request, env, env.ORIGIN ?? ORIGIN)
     return env.ASSETS.fetch(request)
   },
   async scheduled(_event, env, ctx) {

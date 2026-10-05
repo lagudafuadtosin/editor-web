@@ -160,9 +160,10 @@ function InfoPage({ page, onClose }: { page: Page; onClose: () => void }) {
           {page === 'privacy' && (
             <div className="prose">
               <p><b>Who is responsible.</b> Postbarrel Vid Editor is made by Fuad Laguda, trading as Postbarrel, First Floor Right, 35A Cowane Street, Stirling, Scotland, United Kingdom. Contact: support@postbarrel.com. If you are unhappy with how your data is handled, tell us first and we will acknowledge it within 30 days. You can also complain to the Information Commissioner's Office (ico.org.uk).</p>
-              <p><b>Your files stay on your PC.</b> Videos, pictures, sound and teleprompter takes are opened and edited inside your browser on your computer. They are never uploaded, and nothing is sent to Postbarrel or anyone else. This page does not connect to any server after it has loaded.</p>
+              <p><b>Your files stay on your PC.</b> Videos, pictures, sound and teleprompter takes are opened and edited inside your browser on your computer. They are never uploaded, and nothing about them is sent to Postbarrel or anyone else. After it has loaded, the only thing this page sends is the count below.</p>
               <p><b>What is kept, and where.</b> Your edit, its autosave and your teleprompter takes are kept in this browser's own storage on your PC. Your videos are not copied: the browser remembers where they are on your disk and opens them from there. A few settings (the look, the timeline height, teleprompter speed) are kept the same way.</p>
-              <p><b>No account, no tracking.</b> There is no sign-in, no analytics, no advertising and no cookies.</p>
+              <p><b>What we count.</b> To know whether people use the editor, this page adds one to a daily tally on editor.postbarrel.com when it opens, when a file is first added, when an export finishes and when a teleprompter take is recorded. The tally is the date, which of those four it was, and a number. Nothing else is sent or kept: no IP address, no cookie, no ID, and nothing about you or your files.</p>
+              <p><b>No account, no tracking.</b> There is no sign-in, no tracking of you, no advertising and no cookies.</p>
               <p><b>Removing everything.</b> Start a new edit to clear the saved one, or clear this site's data in your browser's settings to remove all of it.</p>
             </div>
           )}

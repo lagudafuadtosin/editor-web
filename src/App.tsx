@@ -18,6 +18,7 @@ import { InfoMenus } from './InfoMenus'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { IS_WEB, openDownload, DOWNLOAD_URL } from './edition'
 import { Welcome } from './Welcome'
+import { countUse } from './usage'
 import { checkFile } from './gate'
 import { browserNoteSeen, browserOk, closeBrowserNote } from './browser'
 import { AppMore } from './AppMore'
@@ -202,6 +203,7 @@ export default function App() {
   // Web version: the one saved edit waiting for Carry on or Start new, the Start new question, and the browser note.
   const [restorable, setRestorable] = useState<Saved | null>(null)
   const [askNew, setAskNew] = useState(false)
+  useEffect(() => countUse('visit'), [])
   // Web version: the first screen, download the app or use the browser. Skipped by the ?teleprompter link.
   const [welcome, setWelcome] = useState(() => IS_WEB && !new URLSearchParams(window.location.search).has('teleprompter'))
   // Stickers to pick from, and freehand drawing on the preview.
@@ -275,6 +277,7 @@ export default function App() {
         }
         picture = verdict.kind === 'picture'
       }
+      countUse('open')
       if (picture) {
         // A picture: 5 seconds on a layer at the playhead, fitted to the frame.
         const { id, bitmap } = await loadImage(file)
@@ -2397,6 +2400,7 @@ export default function App() {
         script={project.script ?? ''}
         onScript={(script) => setHistory((h) => ({ ...h, present: { ...h.present, script } }))}
         onTake={async (file) => {
+          countUse('take')
           await addFile(file)
           saveTake(keyOf(file), file).catch(() => setError('The take is on the timeline but could not be kept in this browser. Save it as a file.'))
         }}

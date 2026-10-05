@@ -1,6 +1,7 @@
 # Security headers for every page and file of the web editor (Cloudflare reads this file).
-# The page may load only its own files and may not connect anywhere at all once loaded: no Postbarrel,
-# no analytics, no outside servers. Pictures and video only from the page itself, the person's files (blob:)
+# The page may load only its own files and may not connect anywhere else once loaded: no Postbarrel,
+# no outside servers. The only call it makes is the anonymous daily tally to its own /count (worker/index.js).
+# Pictures and video only from the page itself, the person's files (blob:)
 # and data: images. The camera and microphone only for this page (the teleprompter).
 /*
   Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; media-src 'self' blob:; worker-src 'self' blob:; connect-src 'self' blob: data:; font-src 'self'; object-src 'none'; frame-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'; upgrade-insecure-requests

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { CODECS_FOR, CONTAINERS as ALL_CONTAINERS, encodableCodecs, exportProject, exportStill, outputSize, RESOLUTIONS as ALL_RESOLUTIONS, STILLS, type ExportSettings, type StillType } from './export'
 import { IS_WEB } from './edition'
+import { countUse } from './usage'
 import { AppMore } from './AppMore'
 
 // The web version exports MP4 and MOV up to 1080p; the other formats and sizes are in the free app.
@@ -92,6 +93,7 @@ export function ExportDialog({ sources, project, onClose, selectedRange, at, pic
     try {
       await exportProject(sources, project, s, writable as never, setProgress, abort.current.signal)
       await writable.close()
+      countUse('export')
       return true
     } catch (err) {
       await writable.abort().catch(() => {})
@@ -129,6 +131,7 @@ export function ExportDialog({ sources, project, onClose, selectedRange, at, pic
     const started = performance.now()
     try {
       await exportProject(sources, project, s, writable as never, setProgress, abort.current.signal)
+      countUse('export')
       const a = document.createElement('a')
       a.href = URL.createObjectURL(new Blob([buf.subarray(0, size)], { type: c.mime }))
       a.download = name

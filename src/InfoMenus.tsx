@@ -4,7 +4,7 @@ import licences from './licences.json'
 
 // The Help and About menus in the top bar, and the pages they open.
 
-export const VERSION = '1.0.0'
+export const VERSION = '1.0.1'
 
 type Page = 'shortcuts' | 'guide' | 'about' | 'licences' | 'privacy' | 'terms'
 

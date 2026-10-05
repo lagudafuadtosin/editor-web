@@ -17,6 +17,7 @@ import { Home } from './Home'
 import { InfoMenus } from './InfoMenus'
 import { ContextMenu, type MenuItem } from './ContextMenu'
 import { IS_WEB, openDownload, DOWNLOAD_URL } from './edition'
+import { Welcome } from './Welcome'
 import { checkFile } from './gate'
 import { browserNoteSeen, browserOk, closeBrowserNote } from './browser'
 import { AppMore } from './AppMore'
@@ -201,6 +202,8 @@ export default function App() {
   // Web version: the one saved edit waiting for Carry on or Start new, the Start new question, and the browser note.
   const [restorable, setRestorable] = useState<Saved | null>(null)
   const [askNew, setAskNew] = useState(false)
+  // Web version: the first screen, download the app or use the browser. Skipped by the ?teleprompter link.
+  const [welcome, setWelcome] = useState(() => IS_WEB && !new URLSearchParams(window.location.search).has('teleprompter'))
   // Stickers to pick from, and freehand drawing on the preview.
   const [stickersOpen, setStickersOpen] = useState(false)
   const [drawingOn, setDrawingOn] = useState(false)
@@ -2285,6 +2288,7 @@ export default function App() {
       <input ref={pickRef} type="file" multiple accept="video/*,audio/*,image/*,.avi,.mkv,.mov,.webm,.mp4,.ts,.mp3,.wav,.m4a,.flac,.ogg,.png,.jpg,.jpeg,.webp" onChange={onPick} hidden />
       <div className="notices">
 
+      {IS_WEB && welcome && <Welcome onWeb={() => setWelcome(false)} />}
       {IS_WEB && browserNote && (
         <div className="banner warn">
           <span>This editor works best in Chrome or Microsoft Edge on a computer. Some things, like saving straight into a folder, may not work here.</span>

@@ -165,6 +165,7 @@ export function ExportDialog({ sources, project, onClose, selectedRange, at, pic
     setProgress(0)
     try {
       const blob = await exportStill(sources, project, at, settings.resolution, type, clear)
+      countUse('still')
       if (handle) {
         const wr = await handle.createWritable()
         await (wr as unknown as { write: (b: Blob) => Promise<void> }).write(blob)

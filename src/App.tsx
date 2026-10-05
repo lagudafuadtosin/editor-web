@@ -203,7 +203,6 @@ export default function App() {
   // Web version: the one saved edit waiting for Carry on or Start new, the Start new question, and the browser note.
   const [restorable, setRestorable] = useState<Saved | null>(null)
   const [askNew, setAskNew] = useState(false)
-  useEffect(() => countUse('visit'), [])
   // Web version: the first screen, download the app or use the browser. Skipped by the ?teleprompter link.
   const [welcome, setWelcome] = useState(() => IS_WEB && !new URLSearchParams(window.location.search).has('teleprompter'))
   // Stickers to pick from, and freehand drawing on the preview.
@@ -277,7 +276,7 @@ export default function App() {
         }
         picture = verdict.kind === 'picture'
       }
-      countUse('open')
+      countUse(mode === 'picture' ? 'picture' : 'edit')
       if (picture) {
         // A picture: 5 seconds on a layer at the playhead, fitted to the frame.
         const { id, bitmap } = await loadImage(file)

@@ -3,7 +3,7 @@
 The free web version of Postbarrel Vid Editor, for anyone to use in the browser at editor.postbarrel.com.
 
 - Free, no sign-in, nothing uploaded: files stay on the person's PC.
-- An anonymous daily count of use (opened, file added, export finished, take recorded): a date, the event and a number, nothing about the person (worker/index.js).
+- An anonymous daily count of use, never visits (file added to an edit or a picture, export finished, picture saved, take recorded): a date, the event and a number, nothing about the person. Emailed to the owner daily (worker/index.js).
 - Autosaves in the browser. No project files.
 - MP4 and MOV video, sound files and pictures, up to the size cap. Bigger files and other formats: download the free app.
 - Video editor and teleprompter. Captions are in the app only.

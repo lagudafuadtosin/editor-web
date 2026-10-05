@@ -21,6 +21,10 @@ not_found_handling = "single-page-application"
 # The tally goes to the Worker. Everything else is served straight from dist/.
 run_worker_first = ["/count"]
 
+# The day's use emailed to the owner every morning (07:00 UTC). RESEND_API_KEY is a secret.
+[triggers]
+crons = ["0 7 * * *"]
+
 # Day, event, number. Nothing about anyone.
 [[d1_databases]]
 binding = "editor_usage"

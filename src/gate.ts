@@ -4,7 +4,7 @@
 
 export const MAX_BYTES = 1_000_000_000
 export const MAX_PICTURE_BYTES = 50_000_000
-export const DOWNLOAD_URL = 'https://github.com/lagudafuadtosin/editor-web/releases/latest'
+export { DOWNLOAD_URL } from './edition'
 
 export type Verdict = { ok: true; kind: 'video' | 'sound' | 'picture' } | { ok: false; reason: string }
 

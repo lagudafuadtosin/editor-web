@@ -11,6 +11,16 @@ type Props = {
   textMode?: boolean // the selected clip is text: corners scale the letters, sides change the wrap width
   onEditText?: () => void // double-click on text
   onActivate?: () => void // any press in the preview: the arrow keys now nudge the selected box
+  // Drawing a pen mask: each click on the picture adds a point (in frame pixels); the shape so far is shown.
+  pen?: { points: [number, number][]; onAdd: (x: number, y: number) => void }
+  // Drawing a box round something to track: press, drag, let go (frame pixels).
+  boxDraw?: (x0: number, y0: number, x1: number, y1: number) => void
+  // Freehand drawing: each press-drag-let-go is one stroke (frame pixels).
+  freehand?: (points: [number, number][]) => void
+  // Cut-out: clicks on what to keep (left) or leave out (right-click or Alt+click), shown as dots (frame pixels).
+  picks?: { dots: [number, number, 0 | 1][]; onPick: (x: number, y: number, keep: boolean) => void }
+  // Erase: painting over what to take away. Strokes so far are shown at the brush width (frame pixels).
+  brush?: { strokes: [number, number][][]; width: number; onStroke: (points: [number, number][]) => void }
 }
 
 type Handle = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
@@ -19,7 +29,7 @@ const SNAP_PX = 12 // how close (in screen pixels) the centre must come to click
 const MIN = 10
 
 // The box drawn over the preview for the selected clip: drag inside to move it, drag a corner or a side to resize.
-export function PreviewOverlay({ frame, transform, onLive, onCommit, onPick, textMode, onEditText, onActivate }: Props) {
+export function PreviewOverlay({ frame, transform, onLive, onCommit, onPick, textMode, onEditText, onActivate, pen, boxDraw, freehand, picks, brush }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   // Which centre lines the box is snapped to while it is being dragged (shown as guide lines).
   const [guides, setGuides] = useState({ x: false, y: false })
@@ -112,6 +122,107 @@ export function PreviewOverlay({ frame, transform, onLive, onCommit, onPick, tex
       return
     }
     onCommit()
+  }
+
+  const [band, setBand] = useState<[number, number, number, number] | null>(null)
+  const bandStart = useRef<[number, number] | null>(null)
+  const stroke = useRef<[number, number][] | null>(null)
+  const [strokeShown, setStrokeShown] = useState<[number, number][] | null>(null)
+  if (picks) {
+    return (
+      <div className="overlay pen-mode" ref={ref}
+        onContextMenu={(e) => e.preventDefault()}
+        onPointerDown={(e) => {
+          if (e.button !== 0 && e.button !== 2) return
+          const r = ref.current!.getBoundingClientRect()
+          picks.onPick(((e.clientX - r.left) / r.width) * frame.w, ((e.clientY - r.top) / r.height) * frame.h, e.button === 0 && !e.altKey)
+        }}>
+        <svg viewBox={`0 0 ${frame.w} ${frame.h}`} preserveAspectRatio="none" className="pen-svg picks">
+          {picks.dots.map(([x, y, keep], i) => <circle key={i} cx={x} cy={y} r={frame.w / 90} className={keep ? 'keep' : 'drop'} />)}
+        </svg>
+      </div>
+    )
+  }
+  if (freehand || brush) {
+    const done = freehand ?? brush!.onStroke
+    const line = (pts: [number, number][], key: number | string) => (
+      <polyline key={key} points={pts.map((q) => q.join(',')).join(' ')} className={brush ? 'brush' : undefined}
+        style={brush ? { strokeWidth: brush.width } : { fill: 'none', stroke: '#facc15', strokeWidth: frame.w / 80, strokeLinecap: 'round', strokeLinejoin: 'round' }} />
+    )
+    const at = (e: React.PointerEvent): [number, number] => {
+      const r = ref.current!.getBoundingClientRect()
+      return [((e.clientX - r.left) / r.width) * frame.w, ((e.clientY - r.top) / r.height) * frame.h]
+    }
+    return (
+      <div className="overlay pen-mode" ref={ref}
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); stroke.current = [at(e)]; setStrokeShown(stroke.current.slice()) }}
+        onPointerMove={(e) => {
+          const s = stroke.current
+          if (!s || !e.buttons) return
+          const p = at(e)
+          const last = s[s.length - 1]
+          if (Math.hypot(p[0] - last[0], p[1] - last[1]) < 3) return
+          s.push(p)
+          setStrokeShown(s.slice())
+        }}
+        onPointerUp={(e) => {
+          const s = stroke.current
+          stroke.current = null
+          setStrokeShown(null)
+          if (!s) return
+          s.push(at(e))
+          if (s.length >= 2 || brush) done(s)
+        }}>
+        {(strokeShown || brush) && (
+          <svg viewBox={`0 0 ${frame.w} ${frame.h}`} preserveAspectRatio="none" className="pen-svg">
+            {brush?.strokes.map((pts, i) => line(pts, i))}
+            {strokeShown && line(strokeShown, 'now')}
+          </svg>
+        )}
+      </div>
+    )
+  }
+  if (boxDraw) {
+    const at = (e: React.PointerEvent): [number, number] => {
+      const r = ref.current!.getBoundingClientRect()
+      return [((e.clientX - r.left) / r.width) * frame.w, ((e.clientY - r.top) / r.height) * frame.h]
+    }
+    return (
+      <div className="overlay pen-mode" ref={ref}
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); const [x, y] = at(e); bandStart.current = [x, y]; setBand([x, y, x, y]) }}
+        onPointerMove={(e) => { const s = bandStart.current; if (s && e.buttons) { const [x, y] = at(e); setBand([s[0], s[1], x, y]) } }}
+        onPointerUp={(e) => {
+          // The start is kept in a ref and the end read from this event, so even a quick flick of a drag counts.
+          const s = bandStart.current
+          bandStart.current = null
+          setBand(null)
+          if (!s) return
+          const [x, y] = at(e)
+          if (Math.abs(x - s[0]) > 8 && Math.abs(y - s[1]) > 8) boxDraw(s[0], s[1], x, y)
+        }}>
+        {band && (
+          <div className="track-band" style={{
+            left: `${(Math.min(band[0], band[2]) / frame.w) * 100}%`, top: `${(Math.min(band[1], band[3]) / frame.h) * 100}%`,
+            width: `${(Math.abs(band[2] - band[0]) / frame.w) * 100}%`, height: `${(Math.abs(band[3] - band[1]) / frame.h) * 100}%`,
+          }} />
+        )}
+      </div>
+    )
+  }
+
+  if (pen) {
+    return (
+      <div className="overlay pen-mode" ref={ref}
+        onPointerDown={(e) => {
+          const r = ref.current!.getBoundingClientRect()
+          pen.onAdd(((e.clientX - r.left) / r.width) * frame.w, ((e.clientY - r.top) / r.height) * frame.h)
+        }}>
+        <svg viewBox={`0 0 ${frame.w} ${frame.h}`} preserveAspectRatio="none" className="pen-svg">
+          {pen.points.length > 1 && <polygon points={pen.points.map((q) => q.join(',')).join(' ')} />}
+          {pen.points.map(([x, y], i) => <circle key={i} cx={x} cy={y} r={frame.w / 120} />)}
+        </svg>
+      </div>
+    )
   }
 
   const box = transform

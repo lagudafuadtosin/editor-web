@@ -16,6 +16,9 @@ export type TextStyle = {
   lineSpacing: number // 1 = normal
   glow?: boolean // a soft light in the text colour around the letters
   uppercase?: boolean
+  // Captions only: 'highlight' colours the word being said, 'single' shows one word at a time.
+  wordMode?: 'off' | 'highlight' | 'single'
+  wordColor?: string
 }
 
 export const FONTS = ['Arial', 'Impact', 'Verdana', 'Trebuchet MS', 'Georgia', 'Times New Roman', 'Courier New', 'Comic Sans MS', 'Segoe UI']
@@ -78,8 +81,19 @@ type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D
 
 // Draws the text inside a box of width w centred on (0, 0). The caller has already moved, scaled and rotated.
 // reveal (0 to 1) shows only the first part of the letters, for the typewriter animation.
-export function drawText(ctx: Ctx, s: TextStyle, w: number, reveal = 1) {
+export function drawText(ctx: Ctx, s: TextStyle, w: number, reveal = 1, words?: { text: string; start: number; end: number }[], local = 0) {
+  // One word at a time: just the word being said (or the last one said), drawn as its own text.
+  if (s.wordMode === 'single' && words?.length) {
+    let i = words.findIndex((x) => local < x.end)
+    if (i < 0) i = words.length - 1
+    if (local < words[0].start) return
+    drawText(ctx, { ...s, text: words[i].text, wordMode: 'off' }, w, 1)
+    return
+  }
   const { lines, lineHeight, height } = layoutText(s, w)
+  // Highlight: which word is being said now, counted across the lines.
+  const sayingIdx = s.wordMode === 'highlight' && words?.length ? words.findIndex((x) => local >= x.start && local < x.end + 0.08) : -1
+  let wordCounter = 0
   const totalChars = lines.reduce((n, l) => n + l.length, 0)
   let budget = reveal >= 1 ? Infinity : Math.floor(totalChars * reveal)
   const pad = paddingOf(s)
@@ -128,5 +142,26 @@ export function drawText(ctx: Ctx, s: TextStyle, w: number, reveal = 1) {
     }
     ctx.fillStyle = s.color
     ctx.fillText(line, x, y)
+    // The word being said, painted again over itself in the highlight colour.
+    const lineWords = line.split(/\s+/).filter(Boolean)
+    if (sayingIdx >= wordCounter && sayingIdx < wordCounter + lineWords.length) {
+      const k = sayingIdx - wordCounter
+      const parts = line.split(/(\s+)/)
+      let before = ''
+      let seen = -1
+      for (const part of parts) {
+        if (part.trim()) seen++
+        if (seen === k && part.trim()) break
+        before += part
+      }
+      const lineW = ctx.measureText(line).width
+      const left = s.align === 'left' ? x : s.align === 'right' ? x - lineW : x - lineW / 2
+      ctx.save()
+      ctx.textAlign = 'left'
+      ctx.fillStyle = s.wordColor ?? '#f5e642'
+      ctx.fillText(lineWords[k], left + ctx.measureText(before).width, y)
+      ctx.restore()
+    }
+    wordCounter += lineWords.length
   })
 }

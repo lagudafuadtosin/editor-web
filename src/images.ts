@@ -1,4 +1,5 @@
-import { newId } from './model'
+import { newId, type Clip } from './model'
+import { lottieFrame } from './lottie'
 import { checkPictureSize } from './pictureSize'
 
 // Pictures (PNG, JPG, WebP, GIF first frame, BMP) decoded once and kept for the session.
@@ -21,4 +22,10 @@ export async function restoreImage(id: string, name: string, type: string, data:
   await checkPictureSize(data)
   imageStore.set(id, await createImageBitmap(data))
   imageFiles.set(id, { name, type, data })
+}
+
+// The picture a picture clip shows at a moment: its still image, or its Lottie animation's frame then.
+export function pictureOf(clip: Clip, local: number): ImageBitmap | HTMLCanvasElement | null {
+  if (clip.lottieId) return lottieFrame(clip.lottieId, local)
+  return clip.imageId ? imageStore.get(clip.imageId) ?? null : null
 }

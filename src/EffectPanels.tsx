@@ -1,4 +1,6 @@
 import { NO_ANIM, NO_BORDER, type Anim, type Border } from './model'
+import { IS_WEB } from './edition'
+import { AppMore } from './AppMore'
 
 const IN: { id: Anim['in']; label: string; textOnly?: boolean }[] = [
   { id: 'none', label: 'None' },
@@ -6,12 +8,24 @@ const IN: { id: Anim['in']; label: string; textOnly?: boolean }[] = [
   { id: 'pop', label: 'Pop' },
   { id: 'slide', label: 'Slide up' },
   { id: 'typewriter', label: 'Typewriter', textOnly: true },
+  { id: 'zoom', label: 'Zoom' },
+  { id: 'bounce', label: 'Bounce' },
+  { id: 'spin', label: 'Spin' },
 ]
 const OUT: { id: Anim['out']; label: string }[] = [
   { id: 'none', label: 'None' },
   { id: 'fade', label: 'Fade' },
   { id: 'pop', label: 'Pop' },
   { id: 'slide', label: 'Slide up' },
+  { id: 'zoom', label: 'Zoom' },
+  { id: 'spin', label: 'Spin' },
+]
+const DURING: { id: NonNullable<Anim['during']>; label: string }[] = [
+  { id: 'none', label: 'Still' },
+  { id: 'zoomIn', label: 'Slow zoom in' },
+  { id: 'zoomOut', label: 'Slow zoom out' },
+  { id: 'panLeft', label: 'Pan left' },
+  { id: 'panRight', label: 'Pan right' },
 ]
 
 // How a clip comes in and goes out.
@@ -27,6 +41,16 @@ export function AnimationPanel({ anim = NO_ANIM, isText, onSet, onLive, onCommit
           <button key={o.id} className={anim.in === o.id ? 'on' : ''} onClick={() => onSet({ ...anim, in: o.id })}>{o.label}</button>
         ))}
       </div>
+      <h3>While on screen</h3>
+      {IS_WEB ? (
+        <AppMore what="slow zoom and pan while on screen" />
+      ) : (
+        <div className="chips">
+          {DURING.map((o) => (
+            <button key={o.id} className={(anim.during ?? 'none') === o.id ? 'on' : ''} onClick={() => onSet({ ...anim, during: o.id })}>{o.label}</button>
+          ))}
+        </div>
+      )}
       <h3>Goes out</h3>
       <div className="chips">
         {OUT.map((o) => (

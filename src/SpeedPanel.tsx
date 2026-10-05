@@ -1,4 +1,7 @@
 import { useEffect, useState } from 'react'
+import { IS_WEB } from './edition'
+import { AppMore } from './AppMore'
+import { RAMPS, type Ramp } from './model'
 
 const fmt = (t: number) => {
   const m = Math.floor(t / 60)
@@ -6,7 +9,7 @@ const fmt = (t: number) => {
 }
 
 // Slow motion or fast forward for the selected clip only, shown in percent like Rush (100% = as recorded).
-export function SpeedPanel({ speed, keepPitch, sourceLength, onSet, onLive, onCommit, onKeepPitch }: {
+export function SpeedPanel({ speed, keepPitch, sourceLength, onSet, onLive, onCommit, onKeepPitch, ramp, onRamp, onRampLive, onReverse, reversing }: {
   speed: number
   keepPitch: boolean
   sourceLength: number // the clip's stretch of source, in seconds
@@ -14,6 +17,11 @@ export function SpeedPanel({ speed, keepPitch, sourceLength, onSet, onLive, onCo
   onLive: (s: number) => void
   onCommit: () => void
   onKeepPitch: (on: boolean) => void
+  ramp?: Ramp
+  onRamp: (r: Ramp | undefined) => void
+  onRampLive: (r: Ramp) => void
+  onReverse: () => void
+  reversing: number | null // progress 0 to 1 while the reversed copy is being made
 }) {
   const pct = Math.round(speed * 100)
   // The typed number is kept as typed until Enter or leaving the box, so half-typed numbers are allowed.
@@ -47,6 +55,35 @@ export function SpeedPanel({ speed, keepPitch, sourceLength, onSet, onLive, onCo
       <p className="note">
         This clip only. Length on the timeline: {fmt(sourceLength / speed)}{speed !== 1 ? ` (was ${fmt(sourceLength)})` : ''}
       </p>
+      {IS_WEB ? (
+        <AppMore what="speed ramps, playing a clip backwards" />
+      ) : (
+        <>
+      <h3>Speed ramp</h3>
+      <div className="chips">
+        <button className={!ramp ? 'on' : ''} onClick={() => onRamp(undefined)}>None</button>
+        {RAMPS.map((r) => (
+          <button key={r.id} className={ramp?.kind === r.id ? 'on' : ''} onClick={() => onRamp({ kind: r.id, amount: ramp?.amount ?? 70 })} title={r.label}>{r.label.split(' (')[0]}</button>
+        ))}
+      </div>
+      {ramp && (
+        <>
+          <label className="slider-row">
+            <span>Strength</span>
+            <input type="range" min={10} max={100} value={ramp.amount} onChange={(e) => onRampLive({ ...ramp, amount: Number(e.target.value) })} onPointerUp={onCommit} onKeyUp={onCommit} />
+            <span className="value">{ramp.amount}</span>
+          </label>
+          <p className="note">{RAMPS.find((r) => r.id === ramp.kind)?.label}. The clip keeps its length. Its own sound is off while a ramp is on: put music on a sound track.</p>
+        </>
+      )}
+      <h3>Backwards</h3>
+      <div className="light-buttons">
+        <button onClick={onReverse} disabled={reversing !== null} title="Makes a reversed copy of this clip on this PC and puts it in its place">
+          {reversing !== null ? `Reversing… ${Math.round(reversing * 100)}%` : 'Reverse this clip'}
+        </button>
+      </div>
+        </>
+      )}
     </div>
   )
 }

@@ -1,4 +1,6 @@
-import { MP4, QTFF, WAVE, MP3, ADTS, FLAC, OGG, BlobSource, Input, type InputAudioTrack, type InputVideoTrack } from 'mediabunny'
+import { aviToMkv, isAvi } from './avi'
+import { IS_WEB } from './edition'
+import { MP4, QTFF, MATROSKA, WEBM, MPEG_TS, WAVE, MP3, ADTS, FLAC, OGG, BlobSource, Input, type InputAudioTrack, type InputVideoTrack } from 'mediabunny'
 
 export type MediaInfo = {
   fileName: string
@@ -32,10 +34,13 @@ export type OpenedMedia = {
 // Opens any file Mediabunny can read (MKV, MP4, MOV, WebM, TS and more) straight from disk.
 // Nothing is uploaded: BlobSource reads the File in place, a slice at a time.
 export async function openMedia(original: File): Promise<OpenedMedia> {
-  const file = original
+  // AVI is read by our own reader and rewritten in memory first (see avi.ts).
+  const avi = !IS_WEB && (await isAvi(original)) // AVI, MKV, WebM and TS open in the app only
+  const file = avi ? await aviToMkv(original) : original
   // Only the formats the editor uses. Mediabunny can also read streaming playlists (HLS), which fetch from the
   // internet; that reader is left out on purpose.
-  const input = new Input({ formats: [MP4, QTFF, WAVE, MP3, ADTS, FLAC, OGG], source: new BlobSource(file) })
+  const formats = IS_WEB ? [MP4, QTFF, WAVE, MP3, ADTS, FLAC, OGG] : [MP4, QTFF, MATROSKA, WEBM, MPEG_TS, WAVE, MP3, ADTS, FLAC, OGG]
+  const input = new Input({ formats, source: new BlobSource(file) })
   const format = await input.getFormat()
   const duration = await input.computeDuration()
   const videoTrack = await input.getPrimaryVideoTrack()
@@ -69,7 +74,7 @@ export async function openMedia(original: File): Promise<OpenedMedia> {
     : null
 
   return {
-    info: { fileName: original.name, fileSize: original.size, format: format.name, duration, video, audio },
+    info: { fileName: original.name, fileSize: original.size, format: avi ? 'AVI' : format.name, duration, video, audio },
     videoTrack: video?.canDecode ? videoTrack : null,
     audioTrack: audio?.canDecode ? audioTrack : null,
   }

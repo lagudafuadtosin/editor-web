@@ -221,6 +221,7 @@ h2 { margin: 0; font-size: 15px; font-weight: 600; word-break: break-all; }
 .ghost { position: absolute; border: 2px dashed var(--accent); border-radius: 6px; background: #f5e64222; pointer-events: none; }
 .snap-line { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: #ec4899; pointer-events: none; z-index: 4; }
 .playhead { position: absolute; top: 0; bottom: 0; width: 2px; margin-left: -1px; background: var(--accent); pointer-events: none; z-index: 5; }
+.playhead-line { position: absolute; top: 20px; bottom: 0; left: -4px; width: 10px; pointer-events: auto; cursor: ew-resize; }
 .playhead-grip { position: absolute; top: 0; left: -7px; width: 16px; height: 20px; background: var(--accent); border-radius: 3px 3px 8px 8px; pointer-events: auto; cursor: ew-resize; }
 
 /* ===== Dialogs ===== */

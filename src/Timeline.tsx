@@ -368,6 +368,8 @@ export function Timeline(p: Props) {
         const t = dropTarget(final)
         p.onMove(d.id, t.row.kind, t.row.index, t.start, t.mainIndex)
       } else {
+        // A plain click on one of several picked clips picks just that one.
+        p.onSelect(d.id)
         p.onSeek(Math.min(p.duration, timeAtClientX(ev.clientX)))
       }
     }
@@ -418,6 +420,8 @@ export function Timeline(p: Props) {
     const src = c.sourceId ? p.sources.find((s) => s.id === c.sourceId) : undefined
     const color = c.kind === 'color' ? c.color ?? '#000000' : c.kind === 'text' ? '#d97706' : c.kind === 'image' ? '#0d9488' : c.kind === 'adjust' ? '#6d28d9' : c.kind === 'shape' ? '#0e7490' : COLORS[(sourceIndex.get(c.sourceId!) ?? 0) % COLORS.length]
     const dragging = drag?.kind === 'move' && drag.moved && drag.id === c.id
+    // The other picked clips on layers and sound tracks slide along with the one being dragged.
+    const following = drag?.kind === 'move' && drag.moved && drag.id !== c.id && !(row.kind === 'video' && row.index === 0) && (p.selectedId === c.id || p.extraIds.includes(c.id)) && [p.selectedId, ...p.extraIds].includes(drag.id)
     const w = Math.max(4, (pl.end - pl.start) * p.pxPerSec - 2)
     const main = row.kind === 'video' && row.index === 0
     const max = maxOut(c)
@@ -463,14 +467,16 @@ export function Timeline(p: Props) {
       <div
         key={c.id}
         className={`clip${p.selectedId === c.id ? ' selected' : ''}${p.extraIds.includes(c.id) || boxIds.includes(c.id) ? ' also-selected' : ''}${dragging ? ' dragging' : ''}${c.kind === 'color' ? ' color-clip' : ''}${locked ? ' locked' : ''}${c.group ? ' grouped' : ''}`}
-        style={{ left: pl.start * p.pxPerSec + 1, width: w, height: row.height - 4, background: color, filter: index % 2 && c.kind !== 'color' ? 'brightness(0.85)' : undefined }}
+        style={{ left: pl.start * p.pxPerSec + 1, width: w, height: row.height - 4, background: color, filter: index % 2 && c.kind !== 'color' ? 'brightness(0.85)' : undefined, transform: following && drag?.kind === 'move' ? `translateX(${drag.x - drag.x0}px)` : undefined, opacity: following ? 0.7 : undefined }}
         onPointerDown={(e) => {
           if (e.button !== 0) return
           if (e.ctrlKey || e.metaKey) {
             p.onToggleSelect(c.id)
             return
           }
-          p.onSelect(c.id)
+          // Pressing one of several picked clips keeps them all picked, so they move together.
+          const picked = (p.selectedId === c.id || p.extraIds.includes(c.id)) && p.extraIds.length > 0
+          if (!picked) p.onSelect(c.id)
           if (locked) return
           capture(e)
           if (e.altKey && e.shiftKey && main && !IS_WEB) {
@@ -675,6 +681,8 @@ export function Timeline(p: Props) {
         )}
         <div className="playhead" style={{ left: p.time * p.pxPerSec }}>
           <div className="playhead-grip" onPointerDown={startScrub} title="Drag to move through the video" />
+          {/* The whole line can be grabbed too, anywhere down the layers, not only at the top. */}
+          {!drag && <div className="playhead-line" onPointerDown={startScrub} title="Drag to move through the video" />}
         </div>
       </div>
     </div>

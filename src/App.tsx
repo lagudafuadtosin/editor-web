@@ -1306,12 +1306,16 @@ export default function App() {
   // Splits the selected clip at the playhead, or the main-track clip there if the selected one is not under it.
   function split() {
     const t = playerRef.current?.now() ?? time
-    let target = selectedPl && t > selectedPl.start && t < selectedPl.end ? selectedPl.clip.id : null
-    if (!target) target = layout(project).find((pl) => pl.kind === 'video' && pl.trackIndex === 0 && t > pl.start && t < pl.end)?.clip.id ?? null
+    // Working on a layer stays on that layer: a clip there under the playhead, never the main track's.
+    const kind = selectedPl?.kind ?? 'video'
+    const trackIndex = selectedPl?.trackIndex ?? 0
+    const under = (pl: { kind: string; trackIndex: number; start: number; end: number }) => pl.kind === kind && pl.trackIndex === trackIndex && t > pl.start && t < pl.end
+    const target = selectedPl && under(selectedPl) ? selectedPl.clip.id : layout(project).find(under)?.clip.id ?? null
     if (!target) return
     const next = splitClip(project, target, t)
     commit(next)
-    const right = layout(next).find((pl) => pl.start === t || (t > pl.start && t < pl.end && pl.clip.id !== target))
+    // The right-hand piece, on the same track, stays selected for the next cut.
+    const right = layout(next).find((pl) => pl.kind === kind && pl.trackIndex === trackIndex && pl.clip.id !== target && Math.abs(pl.start - t) < 1e-3)
     if (right) setSelectedId(right.clip.id)
   }
 
@@ -2098,10 +2102,12 @@ export default function App() {
   // Moving a grouped clip on a layer takes the rest of its group with it, the same distance.
   function move(id: string, kind: 'video' | 'audio', trackIndex: number, start: number, mainIndex: number) {
     const before = findPlaced(project, id)
-    // The others in its group that can follow: on a layer or sound track, and not locked.
-    const followers = before?.clip.group
-      ? groupOf(project, id).filter((o) => o !== id).map((o) => findPlaced(project, o)!).filter((o) => o && !(o.kind === 'video' && o.trackIndex === 0) && !isLocked(project, o.clip.id))
-      : []
+    // The others that follow it: its group, and every other picked clip when it is one of the picked ones.
+    // Only those on a layer or sound track and not locked; they keep their own tracks and move by the same time.
+    const sel = selection()
+    const others = new Set([...(before?.clip.group ? groupOf(project, id) : []), ...(sel.includes(id) ? sel : [])])
+    others.delete(id)
+    const followers = [...others].map((o) => findPlaced(project, o)!).filter((o) => o && !(o.kind === 'video' && o.trackIndex === 0) && !isLocked(project, o.clip.id))
     // Lifted off first, so the moved clip never lands on top of one of its own group.
     let next = project
     // Dropped above the top layer: a new layer is made for it

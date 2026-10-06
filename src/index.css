@@ -1,21 +1,21 @@
 /* Postbarrel Vid Editor colours. Dark is the look; grey is the lighter choice (top bar, sun button). */
 :root,
 :root[data-theme='dark'] {
-  --bg: #0e0e10;
-  --surface: #17171a;
-  --surface-2: #202024;
-  --surface-3: #2a2a30;
-  --line: #2c2c33;
+  --bg: #1a1a1e;
+  --surface: #232328;
+  --surface-2: #2d2d33;
+  --surface-3: #3a3a42;
+  --line: #3b3b44;
   --text: #ececf1;
-  --muted: #9b9ba6;
+  --muted: #b4b4be;
   --accent: #f5e642; /* the Postbarrel highlighter yellow */
   --accent-ink: #16161a;
   --focus: #4f8cff;
   --danger: #ef4444;
-  --track: #131316;
-  --track-main: #19191d;
-  --track-audio: #121a16;
-  --ruler: #141417;
+  --track: #1e1e22;
+  --track-main: #26262c;
+  --track-audio: #1c2620;
+  --ruler: #202024;
   --shadow: 0 10px 40px #000a;
   color-scheme: dark;
 }
@@ -44,6 +44,11 @@
 html, body, #root { height: 100%; }
 body { margin: 0; overflow: hidden; background: var(--bg); }
 button, input, select, textarea { font: inherit; color: inherit; }
-::-webkit-scrollbar { width: 10px; height: 10px; }
-::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-thumb { background: var(--muted); opacity: 0.6; border-radius: 6px; border: 2px solid transparent; background-clip: padding-box; }
+::-webkit-scrollbar-thumb:hover { background: var(--text); background-clip: padding-box; }
+/* The timeline's own scroll bar sits on a visible strip, so it is easy to find under the layers. */
+.timeline-wrap::-webkit-scrollbar { height: 14px; }
+.timeline-wrap::-webkit-scrollbar-track { background: var(--surface-2); border-top: 1px solid var(--line); }
+.timeline-wrap::-webkit-scrollbar-thumb { background: var(--muted); border: 3px solid transparent; background-clip: padding-box; border-radius: 7px; }
 ::-webkit-scrollbar-track { background: transparent; }

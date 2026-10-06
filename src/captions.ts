@@ -63,16 +63,31 @@ export async function wordsFor(
   const words: Word[] = []
   let i = 0
   // The model first: the app downloads it by name if this PC does not have it yet (only the files this PC uses).
-  const dev = await findDevice()
-  await ensureCaptionModel(model, dev, (loaded, total) => onProgress({ stage: 'download', fraction: total ? loaded / total : 0 }))
+  let dev = await findDevice()
+  const download = (loaded: number, total: number) => onProgress({ stage: 'download', fraction: total ? loaded / total : 0 })
+  await ensureCaptionModel(model, dev, download)
   for (const { clip, start } of clips) {
     const source = sources.find((s) => s.id === clip.sourceId)
     if (!source?.media.audioTrack) continue
     const audio = await clipAudio(source, clip.in, clip.out)
-    const found = await transcribe(audio, model, dev, language, (m) => {
-      if (m.type === 'loading') onProgress({ stage: 'download', fraction: m.total ? m.loaded / m.total : 0 })
-      if (m.type === 'working') onProgress({ stage: 'listening', done: i, total: clips.length })
-    })
+    const listen = () =>
+      transcribe(audio.slice(), model, dev, language, (m) => {
+        if (m.type === 'loading') download(m.loaded, m.total)
+        if (m.type === 'working') onProgress({ stage: 'listening', done: i, total: clips.length })
+      })
+    let found: { text: string; start: number; end: number }[]
+    try {
+      found = await listen()
+    } catch (err) {
+      // The graphics card can fail mid-way (a lost or busy card throws "reading 'destroy'"). Start a fresh
+      // thread and finish on the processor instead, which is slower but always there.
+      if (dev.device !== 'webgpu') throw err
+      worker?.terminate()
+      worker = null
+      dev = { device: 'wasm', f16: false }
+      await ensureCaptionModel(model, dev, download)
+      found = await listen()
+    }
     const sp = speedOf(clip) // a sped-up clip says its words sooner on the timeline
     for (const w of found) words.push({ text: w.text, start: start + w.start / sp, end: start + Math.max(w.end, w.start + 0.05) / sp })
     i++

@@ -109,6 +109,27 @@ const say = (status, message, extra = {}) =>
 
 const words = (s) => s.split(/\s+/).filter(Boolean).length
 
+// What the writer may spend on Nebius in a calendar month, counted from what each call really used. Qwen3-235B on
+// Nebius Token Factory: $0.20 per million tokens in, $0.60 per million out (rates as recorded 31 Aug 2026), which
+// is 0.2 and 0.6 millionths of a dollar a token. The writer stops at $4.90, leaving room for calls already running,
+// so the month never passes $5.
+const SPEND_CAP = 4_900_000 // millionths of a dollar
+const RATE_IN = 0.2
+const RATE_OUT = 0.6
+const spendKey = () => `m${new Date().toISOString().slice(0, 7)}`
+
+export async function spentThisMonth(db) {
+  const row = await db.prepare("select n from write_limits where day = ?1 and who = 'spend'").bind(spendKey()).first()
+  return Number(row?.n ?? 0)
+}
+
+async function addSpend(db, micro) {
+  await db
+    .prepare("insert into write_limits (day, who, n) values (?1, 'spend', ?2) on conflict (day, who) do update set n = n + ?2")
+    .bind(spendKey(), Math.ceil(micro))
+    .run()
+}
+
 async function ask(env, messages, maxTokens = 1500) {
   const r = await fetch(URL_NEBIUS, {
     method: 'POST',
@@ -117,6 +138,13 @@ async function ask(env, messages, maxTokens = 1500) {
   })
   if (!r.ok) throw new Error(`nebius ${r.status}`)
   const j = await r.json()
+  // Counted from the tokens Nebius says it used; if it does not say, the most the call could have cost
+  const tin = Number(j.usage?.prompt_tokens)
+  const tout = Number(j.usage?.completion_tokens)
+  const micro = Number.isFinite(tin) && Number.isFinite(tout)
+    ? tin * RATE_IN + tout * RATE_OUT
+    : JSON.stringify(messages).length * RATE_IN + maxTokens * RATE_OUT
+  await addSpend(env.editor_usage, micro).catch(() => {})
   return j.choices?.[0]?.message?.content?.trim() ?? ''
 }
 
@@ -201,6 +229,10 @@ export async function write(request, env, origin) {
   // Only a scrambled form of the address is kept, and only for today.
   const who = await sha(`${env.IP_SALT}|${day}|${clientKey(ip)}`)
   await db.prepare("delete from write_limits where day < ?1 and day not like 'm%'").bind(day).run()
+  // The month's money: once the writer has used its budget on Nebius, it waits for the 1st
+  if ((await spentThisMonth(db)) >= SPEND_CAP) {
+    return say(429, 'The free writer has written all its scripts for this month. It starts again on the 1st.')
+  }
   if (!(await take(db, day, `${who}a`, ATTEMPTS_PER_DAY))) {
     return say(429, `You have used your ${PER_DAY} free scripts for today. More tomorrow, or try Postbarrel for researched scripts.`)
   }

@@ -1,4 +1,27 @@
+import { useEffect, useState } from 'react'
 import { DEFAULT_DUCK_LEVEL, type Duck } from './model'
+
+// A percentage you can type: Enter or clicking away sets it, Escape puts back what it was.
+function PercentBox({ value, max, onSet }: { value: number; max: number; onSet: (v: number) => void }) {
+  const [text, setText] = useState(String(value))
+  useEffect(() => setText(String(value)), [value])
+  const done = () => {
+    const n = Math.round(Number(text.replace('%', '').trim()))
+    if (Number.isFinite(n) && text.trim() !== '') onSet(Math.max(0, Math.min(max, n)))
+    else setText(String(value))
+  }
+  return (
+    <span className="value percent-box">
+      <input type="text" inputMode="numeric" value={text} aria-label="Volume in percent"
+        onChange={(e) => setText(e.target.value)}
+        onBlur={done}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') (e.currentTarget as HTMLInputElement).blur()
+          else if (e.key === 'Escape') { setText(String(value)); (e.currentTarget as HTMLInputElement).blur() }
+        }} />%
+    </span>
+  )
+}
 
 // Volume and fades for the selected clip, and, for its whole track, sitting under the voice.
 export function SoundPanel({ volume, fadeIn, fadeOut, maxFade, duck, trackLabel, voiceTracks, onLive, onCommit, onSet, onDuck }: {
@@ -32,7 +55,7 @@ export function SoundPanel({ volume, fadeIn, fadeOut, maxFade, duck, trackLabel,
           onChange={(e) => onLive({ volume: Number(e.target.value) / 100 })}
           onPointerUp={onCommit} onKeyUp={onCommit}
           onDoubleClick={() => onSet({ volume: 1 })} title="Double-click to reset" />
-        <span className="value">{Math.round(volume * 100)}%</span>
+        <PercentBox value={Math.round(volume * 100)} max={200} onSet={(v) => onSet({ volume: v / 100 })} />
       </label>
       {fade('fadeIn', 'Fade in', fadeIn)}
       {fade('fadeOut', 'Fade out', fadeOut)}

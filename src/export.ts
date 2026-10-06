@@ -308,7 +308,7 @@ export async function renderAudio(
           node.buffer = piece
           node.playbackRate.value = playRate
           node.connect(g)
-          node.start(from - m0)
+          node.start(Math.max(0, from - m0)) // rounding can leave a start a hair below 0, which the browser refuses
         }
         continue
       }
@@ -333,7 +333,7 @@ export async function renderAudio(
         node.buffer = buffer
         node.playbackRate.value = speed // plain speed change: pitch moves with it
         node.connect(gain)
-        node.start(pl.start + (cutStart - pl.clip.in) / speed - m0, cutStart - timestamp, (cutEnd - cutStart))
+        node.start(Math.max(0, pl.start + (cutStart - pl.clip.in) / speed - m0), Math.max(0, cutStart - timestamp), cutEnd - cutStart)
       }
     }
     const rendered = await mix.startRendering()

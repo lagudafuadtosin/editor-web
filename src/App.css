@@ -349,7 +349,7 @@ kbd { font: 12px ui-monospace, monospace; padding: 2px 7px; border-radius: 5px; 
 .ctx-label { flex: 1; }
 .ctx-hint { color: var(--muted); font-size: 11.5px; margin-left: 18px; }
 .ctx-line { height: 1px; margin: 4px 6px; background: var(--line); }
-.clip.also-selected { border-color: var(--accent); border-style: dashed; }
+.clip.also-selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
 .clip.locked { cursor: not-allowed; background-image: repeating-linear-gradient(135deg, transparent 0 8px, rgba(0,0,0,0.18) 8px 10px); }
 .clip.grouped::after { content: ''; position: absolute; right: 4px; bottom: 3px; width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
 .head-name { display: flex; flex-direction: column; gap: 2px; white-space: nowrap; }
@@ -525,3 +525,12 @@ kbd { font: 12px ui-monospace, monospace; padding: 2px 7px; border-radius: 5px; 
 .writer-ask { margin: 0; font-size: 17px; font-weight: 600; }
 .writer-question textarea { min-height: 120px; resize: vertical; padding: 10px; border-radius: 8px; font-size: 14px; line-height: 1.5; }
 .writer-check { min-height: 65px; }
+
+/* The box dragged over the timeline to pick several clips */
+.select-box { position: absolute; z-index: 5; border: 1px solid var(--accent); background: color-mix(in srgb, var(--accent) 15%, transparent); pointer-events: none; }
+
+/* A number you can type in the Sound panel */
+.percent-box input { width: 3.2em; text-align: right; padding: 1px 3px; font: inherit; background: transparent; color: inherit; border: 1px solid var(--border, #555); border-radius: 4px; }
+
+/* Dropping above the top layer makes a new one */
+.ghost.new-layer { border-style: dashed; display: flex; align-items: center; padding-left: 6px; font-size: 11px; color: var(--accent); z-index: 6; }

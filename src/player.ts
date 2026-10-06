@@ -189,7 +189,29 @@ export class Player {
   }
 
   // Draws the still frame at a time (when paused, after a seek or an edit).
+  // Only one frame is decoded at a time. While the playhead is dragged, positions passed over during a decode
+  // are skipped and the newest one is drawn next, so decodes never pile up and fight over the processor.
+  private drawing = false
+  private nextDraw: number | null = null
   async drawAt(t: number) {
+    if (this.drawing) {
+      this.nextDraw = t
+      return
+    }
+    this.drawing = true
+    try {
+      await this.drawNow(t)
+    } finally {
+      this.drawing = false
+    }
+    if (this.nextDraw !== null) {
+      const next = this.nextDraw
+      this.nextDraw = null
+      await this.drawAt(next)
+    }
+  }
+
+  private async drawNow(t: number) {
     if (!this.project) return
     const gen = this.generation
     const id = ++this.drawId
@@ -327,7 +349,7 @@ export class Player {
           node.buffer = b
           node.playbackRate.value = playRate
           node.connect(gain)
-          node.start(at + offset, offset * playRate)
+          node.start(Math.max(0, at + offset), Math.max(0, offset * playRate))
           this.nodes.add(node)
           node.onended = () => this.nodes.delete(node)
         }
@@ -371,7 +393,7 @@ export class Player {
       node.buffer = buffer
       node.playbackRate.value = speed
       node.connect(gain)
-      node.start(at, offset, len)
+      node.start(Math.max(0, at), Math.max(0, offset), len)
       this.nodes.add(node)
       node.onended = () => this.nodes.delete(node)
       // Keep about one second of sound queued, no more.

@@ -438,6 +438,14 @@ export function addTrack(p: Project, kind: 'video' | 'audio', after?: number): P
   return kind === 'video' ? { ...p, video: list } : { ...p, audio: list }
 }
 
+// Layers left empty go away by themselves. Main, Layer 1 and Sound 1 always stay, and so does a locked track.
+export function pruneEmptyTracks(p: Project): Project {
+  const keep = (t: Track, i: number, fixed: number) => i < fixed || t.clips.length > 0 || !!t.locked
+  const video = p.video.filter((t, i) => keep(t, i, 2))
+  const audio = p.audio.filter((t, i) => keep(t, i, 1))
+  return video.length === p.video.length && audio.length === p.audio.length ? p : { ...p, video, audio }
+}
+
 // Removes a layer or sound track and everything on it. The main track cannot be removed.
 export function removeTrack(p: Project, kind: 'video' | 'audio', index: number): Project {
   if (kind === 'video') return index === 0 ? p : { ...p, video: p.video.filter((_, i) => i !== index) }

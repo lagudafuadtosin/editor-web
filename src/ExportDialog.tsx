@@ -92,7 +92,8 @@ export function ExportDialog({ sources, project, onClose, selectedRange, at, pic
     setProgress(0)
     try {
       await exportProject(sources, project, s, writable as never, setProgress, abort.current.signal)
-      await writable.close()
+      // Mediabunny closes the file itself when it finishes a video; the GIF writer leaves it open for us.
+      if (!writable.locked) await writable.close()
       countUse('export')
       return true
     } catch (err) {

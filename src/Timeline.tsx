@@ -25,6 +25,8 @@ type Props = {
   // Clips picked with Ctrl+click as well as the selected one.
   extraIds: string[]
   onToggleSelect: (id: string) => void
+  // Several clips picked at once by dragging a box over them.
+  onSelectMany: (ids: string[]) => void
   // A whole-project change while dragging (ripple, roll, slip, slide), worked out from the project as it was.
   onLive: (next: Project) => void
   onClipMenu: (id: string, x: number, y: number) => void
@@ -40,6 +42,8 @@ type Row = { kind: 'video' | 'audio'; index: number; height: number; label: stri
 
 type Drag =
   | { kind: 'trim'; id: string; side: 'in' | 'out'; x0: number; in0: number; out0: number; start0: number; max: number; main: boolean; speed: number }
+  // A box dragged over empty space picks every clip it touches. Ctrl adds to what is already picked.
+  | { kind: 'box'; x0: number; y0: number; x: number; y: number; add: string[] }
   | { kind: 'move'; id: string; x0: number; y0: number; start0: number; moved: boolean; x: number; y: number }
   | { kind: 'fade'; id: string; side: 'in' | 'out'; x0: number; v0: number; max: number }
   | { kind: 'scrub' }
@@ -56,11 +60,11 @@ type Drag =
 
 const COLORS = ['#2563eb', '#7c3aed', '#0891b2', '#16a34a', '#ea580c', '#db2777']
 // Each layer's height says what is on it: video tallest, pictures medium, text and captions slim.
-const VIDEO_ROW = 84
-const IMAGE_ROW = 62
-const TEXT_ROW = 40
-const EMPTY_ROW = 48
-const AUDIO_ROW = 52
+const VIDEO_ROW = 63
+const IMAGE_ROW = 47
+const TEXT_ROW = 30
+const EMPTY_ROW = 36
+const AUDIO_ROW = 39
 
 function videoRowHeight(clips: Clip[], main: boolean): number {
   if (main) return VIDEO_ROW
@@ -89,11 +93,14 @@ function label(t: number): string {
 
 export function Timeline(p: Props) {
   const innerRef = useRef<HTMLDivElement>(null)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const scroll0 = useRef(0) // where the timeline was scrolled to when the current drag began
   const rowsRef = useRef<HTMLDivElement>(null)
   const [drag, setDragState] = useState<Drag | null>(null)
   // Handlers read the ref, not the state: a fast drag can fire move and up before React re-renders.
   const dragRef = useRef<Drag | null>(null)
   function setDrag(d: Drag | null) {
+    if (d && !dragRef.current) scroll0.current = scrollRef.current?.scrollLeft ?? 0
     dragRef.current = d
     setDragState(d)
   }
@@ -154,7 +161,9 @@ export function Timeline(p: Props) {
   // Where a moved clip would land: its row, its start time, and its slot if the row is the main track.
   function dropTarget(d: Extract<Drag, { kind: 'move' }>) {
     const pl = placed.find((x) => x.clip.id === d.id)!
-    const row = rowAtClientY(d.y)
+    // Above the top layer: a new layer will be made there
+    const above = !!rowsRef.current && d.y < rowsRef.current.getBoundingClientRect().top - 4
+    const row: Row = above ? { kind: 'video', index: p.project.video.length, height: EMPTY_ROW, label: 'New layer' } : rowAtClientY(d.y)
     const len = pl.end - pl.start
     const raw = Math.max(0, d.start0 + (d.x - d.x0) / p.pxPerSec)
     // Snap the start, or failing that the end, to whatever is nearby.
@@ -169,10 +178,10 @@ export function Timeline(p: Props) {
     }
     let mainIndex = 0
     if (row.kind === 'video' && row.index === 0) {
-      const t = timeAtClientX(d.x)
+      const t = timeAtClientX(d.x - scrolled())
       for (const m of placed) if (m.kind === 'video' && m.trackIndex === 0 && m.clip.id !== d.id && t > (m.start + m.end) / 2) mainIndex++
     }
-    return { row, start, mainIndex, len, pl, snapAt }
+    return { row, start, mainIndex, len, pl, snapAt, above }
   }
 
   const scrubX = useRef<number | null>(null)
@@ -192,10 +201,44 @@ export function Timeline(p: Props) {
     p.onSeek(Math.min(p.duration, timeAtClientX(e.clientX)))
   }
 
-  function onPointerMove(e: React.PointerEvent) {
+  // While a clip edge, a clip or a box is dragged near either side of the timeline, the timeline scrolls along.
+  // Drags measure from where they started on the timeline, so the scrolled distance counts as pointer movement.
+  const lastMove = useRef<{ clientX: number; clientY: number } | null>(null)
+  const edgeLoop = useRef<number | null>(null)
+  function scrolled(): number {
+    return (scrollRef.current?.scrollLeft ?? 0) - scroll0.current
+  }
+  function edgeScroll() {
+    edgeLoop.current = null
+    const d = dragRef.current
+    const el = scrollRef.current
+    const m = lastMove.current
+    if (!d || !el || !m || !(d.kind === 'trim' || d.kind === 'move' || d.kind === 'ripple' || d.kind === 'box')) return
+    const r = el.getBoundingClientRect()
+    const zone = 40
+    const speed = m.clientX > r.right - zone ? Math.min(zone, m.clientX - (r.right - zone)) : m.clientX < r.left + zone ? -Math.min(zone, r.left + zone - m.clientX) : 0
+    if (!speed) return
+    const before = el.scrollLeft
+    el.scrollLeft = before + speed / 2
+    if (el.scrollLeft !== before) moveTo(m.clientX, m.clientY)
+    edgeLoop.current = requestAnimationFrame(edgeScroll)
+  }
+
+  function onPointerMove(ev: React.PointerEvent) {
+    lastMove.current = { clientX: ev.clientX, clientY: ev.clientY }
+    moveTo(ev.clientX, ev.clientY)
+    if (edgeLoop.current === null) edgeLoop.current = requestAnimationFrame(edgeScroll)
+  }
+
+  function moveTo(clientX: number, clientY: number) {
+    const e = { clientX: clientX + scrolled(), clientY }
     const d = dragRef.current
     if (!d) return
-    if (d.kind === 'scrub') scrubTo(e.clientX)
+    if (d.kind === 'box') {
+      setDrag({ ...d, x: e.clientX, y: clientY })
+      return
+    }
+    if (d.kind === 'scrub') scrubTo(clientX)
     else if (d.kind === 'fade') {
       // The fade in grows as its dot is pulled right, the fade out as its dot is pulled left.
       const dx = (e.clientX - d.x0) / p.pxPerSec
@@ -299,10 +342,25 @@ export function Timeline(p: Props) {
     }
   }
 
-  function onPointerUp(e: React.PointerEvent) {
+  function onPointerUp(ev: React.PointerEvent) {
     const d = dragRef.current
+    if (edgeLoop.current !== null) cancelAnimationFrame(edgeLoop.current)
+    edgeLoop.current = null
     if (!d) return
-    if (d.kind === 'scrub') scrubTo(e.clientX)
+    const e = { clientX: ev.clientX + scrolled(), clientY: ev.clientY }
+    if (d.kind === 'box') {
+      if (Math.abs(e.clientX - d.x0) < 5 && Math.abs(e.clientY - d.y0) < 5) {
+        // A plain click on empty space: clear the selection and move the playhead there
+        p.onSelect(null)
+        p.onSeek(Math.min(p.duration, timeAtClientX(ev.clientX)))
+      } else {
+        const ids = boxHits({ ...d, x: e.clientX, y: e.clientY })
+        p.onSelectMany([...d.add, ...ids.filter((i) => !d.add.includes(i))])
+      }
+      setDrag(null)
+      return
+    }
+    if (d.kind === 'scrub') scrubTo(ev.clientX)
     else if (d.kind === 'trim' || d.kind === 'fade' || d.kind === 'vol' || d.kind === 'ripple' || d.kind === 'roll' || d.kind === 'slip' || d.kind === 'slide') p.onCommit()
     else {
       const final = { ...d, x: e.clientX, y: e.clientY }
@@ -310,12 +368,31 @@ export function Timeline(p: Props) {
         const t = dropTarget(final)
         p.onMove(d.id, t.row.kind, t.row.index, t.start, t.mainIndex)
       } else {
-        p.onSeek(Math.min(p.duration, timeAtClientX(e.clientX)))
+        p.onSeek(Math.min(p.duration, timeAtClientX(ev.clientX)))
       }
     }
     setDrag(null)
     setSnapLine(null)
   }
+
+  // Clips the box touches. The box is kept in screen pixels as they were when the drag began.
+  function boxHits(d: Extract<Drag, { kind: 'box' }>): string[] {
+    const inner = innerRef.current
+    const rowsEl = rowsRef.current
+    if (!inner || !rowsEl) return []
+    const left = inner.getBoundingClientRect().left + scrolled()
+    const top = rowsEl.getBoundingClientRect().top
+    const x1 = Math.min(d.x0, d.x), x2 = Math.max(d.x0, d.x)
+    const y1 = Math.min(d.y0, d.y), y2 = Math.max(d.y0, d.y)
+    return placed.filter((pl) => {
+      const row = rows.find((r) => r.kind === pl.kind && r.index === pl.trackIndex)
+      if (!row || track(row)?.locked) return false
+      const cx1 = left + pl.start * p.pxPerSec, cx2 = left + pl.end * p.pxPerSec
+      const cy1 = top + rowTop(row), cy2 = cy1 + row.height
+      return cx1 < x2 && cx2 > x1 && cy1 < y2 && cy2 > y1
+    }).map((pl) => pl.clip.id)
+  }
+  const boxIds = drag?.kind === 'box' ? boxHits(drag) : []
 
   const ticks: number[] = []
   for (let t = 0; t <= p.duration + 20; t += step) ticks.push(t)
@@ -363,9 +440,11 @@ export function Timeline(p: Props) {
         }
       }
       if (e.shiftKey && !main && !IS_WEB) {
+        scroll0.current = scrollRef.current?.scrollLeft ?? 0
         setDrag({ kind: 'ripple', id: c.id, side, x0: e.clientX, base: p.project, pl, max })
         return
       }
+      scroll0.current = scrollRef.current?.scrollLeft ?? 0
       setDrag({ kind: 'trim', id: c.id, side, x0: e.clientX, in0: c.in, out0: c.out, start0: pl.start, max, main, speed: c.speed ?? 1 })
     }
     // Sound fades: a dot on the top edge at each end, pulled inwards; the faded part is shaded.
@@ -383,7 +462,7 @@ export function Timeline(p: Props) {
     return (
       <div
         key={c.id}
-        className={`clip${p.selectedId === c.id ? ' selected' : ''}${p.extraIds.includes(c.id) ? ' also-selected' : ''}${dragging ? ' dragging' : ''}${c.kind === 'color' ? ' color-clip' : ''}${locked ? ' locked' : ''}${c.group ? ' grouped' : ''}`}
+        className={`clip${p.selectedId === c.id ? ' selected' : ''}${p.extraIds.includes(c.id) || boxIds.includes(c.id) ? ' also-selected' : ''}${dragging ? ' dragging' : ''}${c.kind === 'color' ? ' color-clip' : ''}${locked ? ' locked' : ''}${c.group ? ' grouped' : ''}`}
         style={{ left: pl.start * p.pxPerSec + 1, width: w, height: row.height - 4, background: color, filter: index % 2 && c.kind !== 'color' ? 'brightness(0.85)' : undefined }}
         onPointerDown={(e) => {
           if (e.button !== 0) return
@@ -408,6 +487,7 @@ export function Timeline(p: Props) {
             setDrag({ kind: 'slip', id: c.id, x0: e.clientX, base: p.project, c, max })
             return
           }
+          scroll0.current = scrollRef.current?.scrollLeft ?? 0
           setDrag({ kind: 'move', id: c.id, x0: e.clientX, y0: e.clientY, start0: pl.start, moved: false, x: e.clientX, y: e.clientY })
         }}
         onContextMenu={(e) => {
@@ -421,7 +501,7 @@ export function Timeline(p: Props) {
         {c.kind === 'image' && c.imageId && imageStore.get(c.imageId) && (
           <ClipStrip overview={{ peaksPerSecond: 1, peaks: null, thumbs: [{ t: 0, img: imageStore.get(c.imageId)! }], thumbAspect: (c.imageSize?.[0] ?? 16) / (c.imageSize?.[1] ?? 9) }} inPoint={0} outPoint={1} width={w} height={row.height - 6} soundOnly={false} />
         )}
-        {c.kind === 'media' && <ClipStrip overview={p.overviews.get(c.sourceId!)} inPoint={c.in} outPoint={c.out} width={w} height={row.height - 6} soundOnly={row.kind === 'audio'} />}
+        {c.kind === 'media' && <ClipStrip overview={p.overviews.get(c.sourceId!)} inPoint={c.in} outPoint={c.out} width={w} height={row.height - 6} soundOnly={row.kind === 'audio'} gain={track(row)?.muted ? 0 : c.volume ?? 1} />}
         <span className="clip-label">{c.kind === 'color' ? 'Colour block' : c.kind === 'adjust' ? '◐ Adjustment layer' : c.kind === 'shape' ? `◆ ${SHAPES.find((x) => x.id === c.shape?.kind)?.label ?? 'Shape'}` : c.kind === 'image' ? `▣ ${imageName(c)}` : c.kind === 'text' ? `T  ${c.text?.text.split(/\n/)[0] ?? ''}` : src?.name}</span>
         <span className="clip-length">{(c.speed ?? 1) !== 1 ? `${Math.round((c.speed ?? 1) * 100)}% · ` : ''}{label(pl.end - pl.start)}</span>
         {hasSound && (fi > 0 || fo > 0) && (
@@ -527,7 +607,7 @@ export function Timeline(p: Props) {
           )
         })}
       </div>
-    <div className="timeline" onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+    <div className="timeline" ref={scrollRef} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
       <div className="tl-inner" ref={innerRef} style={{ width }}>
         <div className="ruler" onPointerDown={startScrub} title="Click or drag to move the playhead">
           {ticks.map((t) => (
@@ -563,8 +643,10 @@ export function Timeline(p: Props) {
                 }}
                 onPointerDown={(e) => {
                   if (e.target === e.currentTarget && e.button === 0) {
-                    p.onSelect(null)
-                    startScrub(e)
+                    capture(e)
+                    scroll0.current = scrollRef.current?.scrollLeft ?? 0
+                    const add = e.ctrlKey || e.metaKey ? [p.selectedId, ...p.extraIds].filter((x): x is string => !!x) : []
+                    setDrag({ kind: 'box', x0: e.clientX, y0: e.clientY, x: e.clientX, y: e.clientY, add })
                   }
                 }}
               >
@@ -573,8 +655,19 @@ export function Timeline(p: Props) {
               </div>
             )
           })}
+          {drag?.kind === 'box' && (Math.abs(drag.x - drag.x0) > 4 || Math.abs(drag.y - drag.y0) > 4) && rowsRef.current && (() => {
+            // Drawn inside the scrolling rows, so the start point is moved back by the distance scrolled
+            const rr = rowsRef.current.getBoundingClientRect()
+            const sx = scrolled()
+            return <div className="select-box" style={{
+              left: Math.min(drag.x0, drag.x) - sx - rr.left, top: Math.min(drag.y0, drag.y) - rr.top,
+              width: Math.abs(drag.x - drag.x0), height: Math.abs(drag.y - drag.y0),
+            }} />
+          })()}
           {ghost && (
-            <div className="ghost" style={{ top: rowTop(ghost.row) + 2, height: ghost.row.height - 4, left: ghostLeft * p.pxPerSec, width: ghost.len * p.pxPerSec }} />
+            <div className={`ghost${ghost.above ? ' new-layer' : ''}`} style={{ top: ghost.above ? -26 : rowTop(ghost.row) + 2, height: ghost.above ? 24 : ghost.row.height - 4, left: ghostLeft * p.pxPerSec, width: ghost.len * p.pxPerSec }}>
+              {ghost.above && <span>New layer</span>}
+            </div>
           )}
         </div>
         {(snapLine !== null || ghost?.snapAt != null) && (
@@ -589,11 +682,11 @@ export function Timeline(p: Props) {
   )
 }
 
-function ClipStrip({ overview, inPoint, outPoint, width, height, soundOnly }: { overview?: Overview; inPoint: number; outPoint: number; width: number; height: number; soundOnly: boolean }) {
+function ClipStrip({ overview, inPoint, outPoint, width, height, soundOnly, gain = 1 }: { overview?: Overview; inPoint: number; outPoint: number; width: number; height: number; soundOnly: boolean; gain?: number }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
-    if (ref.current) drawStrip(ref.current, soundOnly && overview ? { ...overview, thumbs: [] } : overview, inPoint, outPoint, width, height)
-  }, [overview, inPoint, outPoint, width, height, soundOnly])
+    if (ref.current) drawStrip(ref.current, soundOnly && overview ? { ...overview, thumbs: [] } : overview, inPoint, outPoint, width, height, gain)
+  }, [overview, inPoint, outPoint, width, height, soundOnly, gain])
   return <canvas ref={ref} className="strip" style={{ width, height }} />
 }
 

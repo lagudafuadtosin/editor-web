@@ -1,4 +1,4 @@
-import { BufferTarget, CanvasSink, CanvasSource, getFirstEncodableVideoCodec, Mp4OutputFormat, Output, QUALITY_MEDIUM } from 'mediabunny'
+import { BufferTarget, CanvasSink, CanvasSource, EncodedPacketSink, getFirstEncodableVideoCodec, Mp4OutputFormat, Output, QUALITY_MEDIUM } from 'mediabunny'
 import type { OpenedMedia } from './media'
 
 // Preview copies (proxies): a small, easy-to-decode copy of a big video, used only to play it in the editor.
@@ -13,6 +13,24 @@ export function wantsProxy(m: OpenedMedia): boolean {
   if (!v) return false
   return Math.min(v.width, v.height) > 1080 || (m.info.fileSize * 8) / Math.max(1, m.info.duration) > 25_000_000
 }
+
+// The longest stretch, in seconds, between full pictures (keyframes), sampled across the video. Jumping to a
+// moment means decoding from the keyframe before it, so a video with keyframes a minute apart scrubs slowly
+// even when it is small. Some downloads have only one or two in the whole file.
+export async function longestKeyGap(m: OpenedMedia): Promise<number> {
+  const v = m.videoTrack
+  if (!v) return 0
+  const sink = new EncodedPacketSink(v)
+  const dur = m.info.duration
+  let worst = 0
+  for (let i = 1; i <= 12; i++) {
+    const t = (dur * i) / 13
+    const key = await sink.getKeyPacket(t, { metadataOnly: true }).catch(() => null)
+    if (key) worst = Math.max(worst, t - key.timestamp)
+  }
+  return worst
+}
+export const SLOW_KEY_GAP = 10
 
 export async function makeProxy(m: OpenedMedia, onProgress: (f: number) => void): Promise<Blob> {
   const v = m.videoTrack

@@ -44,7 +44,7 @@ import { loadLottie } from './lottie'
 import { findBeats, findCuts } from './analyse'
 import { makeTitle, TITLES } from './titles'
 import { Viewer, type Place } from './Viewer'
-import { makeProxy, wantsProxy } from './proxy'
+import { longestKeyGap, makeProxy, SLOW_KEY_GAP, wantsProxy } from './proxy'
 import { activeId, activeName, cutOutForNest, deleteSeq, newSeq, renameSeq, seqById, seqHash, seqList, switchSeq, usedBy, type Seq } from './sequences'
 import { ChevronDown } from 'lucide-react'
 import { flattenMulticam, syncBySound, type Cut } from './multicam'
@@ -61,7 +61,7 @@ import { hitBox, PreviewOverlay } from './PreviewOverlay'
 import { autoLook, NEUTRAL, type Look } from './look'
 import { buildOverview, type Overview } from './overview'
 import {
-  activeVideo, addMarker, addTrack, appendToMain, closeGap, duration as projectDuration, emptyProject, findPlaced, FRAMES, gapAt, groupOf, insertAfter,
+  activeVideo, addMarker, addTrack, appendToMain, pruneEmptyTracks, closeGap, duration as projectDuration, emptyProject, findPlaced, FRAMES, gapAt, groupOf, insertAfter,
   isLocked, layout, moveClip, newId, placeOnLayer, removeClip, removeMarker, removeTrack, reserveIdsIn, rippleDelete, setGroup, shiftAfter, sourceAt,
   fitTransform, sourceSize, splitClip, transformOf, updateClip, updateMarker, updateTrack, type Clip, type Project, type Source, type Transform,
   trackedPoint, insertOnMain, overwriteOnMain, localAt, DEFAULT_KEY, DEFAULT_SHADE, DEFAULT_MASK, type Mask, type Matte, NO_FX, NO_SFX, addKeyAt, placeAt, transformAt, type Ease, shown, TRANSITIONS, type Transition,
@@ -310,6 +310,13 @@ export default function App() {
         future: [],
       }))
       setSelectedId(clip.id)
+      // A video with keyframes far apart moves slowly when you drag the playhead, so a preview copy is made
+      // in the background straight away (as Premiere and Resolve do with proxies). Export still uses the original.
+      if (!IS_WEB && media.videoTrack) {
+        longestKeyGap(media).then((gap) => {
+          if (gap > SLOW_KEY_GAP) void makeProxyFor(source, `${file.name} is slow to move through (full pictures only every ${Math.round(gap)} seconds). Making a smooth preview copy`)
+        }).catch(() => {})
+      }
     } catch (err) {
       setError(`Could not open ${file.name}: ${err instanceof Error ? err.message : String(err)}`)
     } finally {
@@ -342,8 +349,46 @@ export default function App() {
     } catch {
       return // closed the box
     }
-    for (const h of handles) await addFile(await h.getFile(), h)
+    for (const h of handles) {
+      try {
+        await addFile(await h.getFile(), h)
+      } catch (err) {
+        setError(`${h.name} could not be opened: ${err instanceof Error ? err.message : String(err)}`)
+      }
+    }
   }
+
+  // Files dropped onto the editor from File Explorer are added like files picked with Media.
+  const addFileRef = useRef(addFile)
+  addFileRef.current = addFile
+  useEffect(() => {
+    const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
+    const over = (e: DragEvent) => {
+      if (!hasFiles(e)) return
+      e.preventDefault()
+      if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    }
+    const drop = async (e: DragEvent) => {
+      if (!hasFiles(e) || !e.dataTransfer) return
+      e.preventDefault()
+      // Ask for the lasting pointers before the first await, while the drop is still readable
+      const items = Array.from(e.dataTransfer.items).filter((i) => i.kind === 'file')
+      const handles = items.map((i) => (i as DataTransferItem & { getAsFileSystemHandle?: () => Promise<Handle | null> }).getAsFileSystemHandle?.())
+      const files = items.map((i) => i.getAsFile())
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]
+        if (!file) continue
+        const handle = (await handles[i]?.catch(() => null)) ?? undefined
+        await addFileRef.current(file, handle && (handle as { kind?: string }).kind === 'file' ? handle : undefined)
+      }
+    }
+    window.addEventListener('dragover', over)
+    window.addEventListener('drop', drop)
+    return () => {
+      window.removeEventListener('dragover', over)
+      window.removeEventListener('drop', drop)
+    }
+  }, [])
 
   // ---- Keeping your work ----
   function snapshot(): Saved {
@@ -939,7 +984,7 @@ export default function App() {
         { label: 'Add a Lottie animation…', hint: '.json from LottieFiles', onClick: addLottie },
         { label: 'Record the screen…', hint: 'with your webcam if you like', disabled: !!screenRec, onClick: () => setScreenAsk(true) },
         'line',
-        { label: 'Make preview copies of big videos', hint: 'smoother 4K editing', onClick: makeProxies },
+        { label: 'Make preview copies', hint: 'smoother editing of big or slow-to-seek videos', onClick: makeProxies },
         { label: 'Play with preview copies', checked: useProxies, onClick: () => { const on = !useProxies; setUseProxiesState(on); playerRef.current?.setUseProxies(on) } },
       ] : which === 'text' ? [
         { label: 'Text', onClick: addText },
@@ -1210,6 +1255,27 @@ export default function App() {
     return next
   }
 
+  // A change in the Sound panel goes to every picked clip that has sound, not just the first one.
+  // Fades are kept to half of each clip's own length.
+  function updateSound(p: Project, patch: Partial<Clip>): Project {
+    const ids = selection(p).filter((id) => {
+      const c = findPlaced(p, id)?.clip
+      return c?.kind === 'media' && !!sources.find((s) => s.id === c.sourceId)?.media.audioTrack
+    })
+    if (ids.length < 2) return updateSel(p, patch)
+    let next = p
+    for (const id of ids) {
+      const pl = findPlaced(next, id)
+      if (!pl) continue
+      const half = (pl.end - pl.start) / 2
+      const own = { ...patch }
+      if (own.fadeIn !== undefined) own.fadeIn = Math.min(own.fadeIn, half)
+      if (own.fadeOut !== undefined) own.fadeOut = Math.min(own.fadeOut, half)
+      next = updateClip(next, id, own)
+    }
+    return next
+  }
+
   async function autoFix(clip: Clip) {
     const p = playerRef.current
     if (!p?.lookRenderer) return
@@ -1263,7 +1329,7 @@ export default function App() {
     const order = ids.map((id) => findPlaced(project, id)!).sort((a, b) => b.start - a.start)
     let next = project
     for (const pl of order) next = ripple ? rippleDelete(next, pl.clip.id) : removeClip(next, pl.clip.id)
-    commit(next)
+    commit(pruneEmptyTracks(next))
     setSelectedId(null)
   }
 
@@ -1499,22 +1565,40 @@ export default function App() {
 
   // Preview copies for every big video that has none yet, kept in this browser for next time.
   async function makeProxies() {
-    const todo = sources.filter((s) => !s.proxy && s.media.videoTrack && wantsProxy(s.media))
+    // Big videos, and any video whose keyframes are far apart (slow to jump around in, whatever its size)
+    const todo: Source[] = []
+    for (const s of sources) {
+      if (s.proxy || !s.media.videoTrack) continue
+      if (wantsProxy(s.media) || (await longestKeyGap(s.media).catch(() => 0)) > SLOW_KEY_GAP) todo.push(s)
+    }
     if (!todo.length) {
       setNotice('Every video here is already easy to play: no preview copies are needed.')
       return
     }
+    for (const [i, s] of todo.entries()) {
+      if (!(await makeProxyFor(s, `Making preview copies: ${i + 1} of ${todo.length}`, false))) return
+    }
+    setNotice(`Made ${todo.length} preview cop${todo.length === 1 ? 'y' : 'ies'}. Playback uses them; export always uses the originals.`)
+  }
+
+  // One preview copy, kept in this browser for next time. True when it worked.
+  const proxyJobs = useRef(new Set<string>())
+  async function makeProxyFor(s: Source, label: string, sayDone = true): Promise<boolean> {
+    if (proxyJobs.current.has(s.id)) return true
+    proxyJobs.current.add(s.id)
     try {
-      for (const [i, s] of todo.entries()) {
-        const blob = await makeProxy(s.media, (f) => setNotice(`Making preview copies: ${i + 1} of ${todo.length}, ${Math.round(f * 100)}%`))
-        if (s.file) await saveTake(`proxy:${keyOf(s.file)}`, blob).catch(() => {})
-        const proxy = await openMedia(new File([blob], `${s.name} (preview copy).mp4`, { type: 'video/mp4' }))
-        setSources((list) => list.map((x) => (x.id === s.id ? { ...x, proxy } : x)))
-      }
-      setNotice(`Made ${todo.length} preview cop${todo.length === 1 ? 'y' : 'ies'}. Playback uses them; export always uses the originals.`)
+      const blob = await makeProxy(s.media, (f) => setNotice(`${label}: ${Math.round(f * 100)}%`))
+      if (s.file) await saveTake(`proxy:${keyOf(s.file)}`, blob).catch(() => {})
+      const proxy = await openMedia(new File([blob], `${s.name} (preview copy).mp4`, { type: 'video/mp4' }))
+      setSources((list) => list.map((x) => (x.id === s.id ? { ...x, proxy } : x)))
+      if (sayDone) setNotice(`${s.name}: preview copy ready, it now moves smoothly. Export still uses the original.`)
+      return true
     } catch (err) {
       setNotice(null)
-      setError(`Could not make a preview copy: ${err instanceof Error ? err.message : String(err)}`)
+      setError(`Could not make a preview copy of ${s.name}: ${err instanceof Error ? err.message : String(err)}`)
+      return false
+    } finally {
+      proxyJobs.current.delete(s.id)
     }
   }
 
@@ -1926,6 +2010,8 @@ export default function App() {
     const grouped = sel.some((i) => findPlaced(project, i)?.clip.group)
     setMenu({
       x, y, items: [
+        { label: 'Duplicate', hint: 'a copy right after it', disabled: locked, onClick: () => commit(insertAfter(project, id, { ...structuredClone(c), id: newId('c'), group: undefined })) },
+        'line',
         { label: 'Freeze frame here', hint: 'at the playhead', disabled: c.kind !== 'media' || pl.kind !== 'video' || !under || locked, onClick: () => freezeFrame(id) },
         { label: c.kind === 'image' ? 'Replace picture…' : 'Replace clip…', hint: 'keeps its edits', disabled: (c.kind !== 'media' && c.kind !== 'image') || locked, onClick: () => replaceClip(id) },
         { label: 'Render this part for smooth playback', hint: 'until anything changes', onClick: () => renderCache(pl.start, pl.end) },
@@ -2012,12 +2098,14 @@ export default function App() {
       : []
     // Lifted off first, so the moved clip never lands on top of one of its own group.
     let next = project
+    // Dropped above the top layer: a new layer is made for it
+    if (kind === 'video' && trackIndex >= next.video.length) next = addTrack(next, 'video')
     for (const o of followers) next = removeClip(next, o.clip.id)
     next = moveClip(next, id, kind, trackIndex, start, mainIndex)
     const after = findPlaced(next, id)
     const d = after && before ? after.start - before.start : 0
     for (const o of followers) next = placeOnLayer(next, o.clip, o.kind, o.trackIndex, o.start + d)
-    commit(next)
+    commit(pruneEmptyTracks(next))
   }
 
   // Click on the preview: select the top-most clip under the pointer.
@@ -2066,6 +2154,12 @@ export default function App() {
       } else if (e.code === 'ArrowLeft' || e.code === 'ArrowRight') {
         e.preventDefault()
         step((e.code === 'ArrowLeft' ? -1 : 1) * (e.shiftKey ? 1 : 1 / fps))
+      } else if (ctrl && e.code === 'KeyA' && mode === 'edit') {
+        // Every clip on the open timeline, except on locked tracks
+        e.preventDefault()
+        const ids = [...project.video, ...project.audio].flatMap((t) => (t.locked ? [] : t.clips.map((c) => c.id)))
+        setSelectedIdOnly(ids[0] ?? null)
+        setExtraIds(ids.slice(1))
       } else if (ctrl && e.code === 'KeyZ') {
         e.preventDefault()
         if (e.shiftKey) redo()
@@ -2896,9 +2990,9 @@ export default function App() {
                       voiceTracks={[...project.video, ...project.audio]
                         .filter((t) => t.id !== track.id && t.clips.some((c) => c.kind === 'media' && sources.find((s) => s.id === c.sourceId)?.media.audioTrack))
                         .map((t) => ({ id: t.id, label: trackLabel(project, t.id) }))}
-                      onLive={(patch) => live((p) => updateSel(p, patch))}
+                      onLive={(patch) => live((p) => updateSound(p, patch))}
                       onCommit={commitLive}
-                      onSet={(patch) => commit(updateSel(project, patch))}
+                      onSet={(patch) => commit(updateSound(project, patch))}
                       onDuck={(duck, isLive) => (isLive ? live((p) => updateTrack(p, track.id, { duck })) : commit(updateTrack(project, track.id, { duck })))}
                     />
                   )
@@ -2965,6 +3059,10 @@ export default function App() {
             setSelectedIdOnly(extraIds[0] ?? null)
             setExtraIds(extraIds.slice(1))
           } else setExtraIds((x) => (x.includes(id) ? x.filter((y) => y !== id) : [...x, id]))
+        }}
+        onSelectMany={(ids) => {
+          setSelectedIdOnly(ids[0] ?? null)
+          setExtraIds(ids.slice(1))
         }}
         onLive={(next) => live(() => next)}
         onClipMenu={clipMenu}

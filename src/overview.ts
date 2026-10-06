@@ -71,6 +71,7 @@ export function drawStrip(
   outPoint: number,
   cssWidth: number,
   cssHeight: number,
+  gain = 1, // the clip's volume: the wave is drawn as loud as it will play, flat at 0
 ) {
   const dpr = window.devicePixelRatio || 1
   const w = Math.max(1, Math.min(8000, Math.round(cssWidth * dpr)))
@@ -108,7 +109,7 @@ export function drawStrip(
       for (let s = Math.floor(t0 * o.peaksPerSecond); s <= Math.floor(t1 * o.peaksPerSecond); s++) {
         if (s >= 0 && s < o.peaks.length && o.peaks[s] > peak) peak = o.peaks[s]
       }
-      const half = Math.max(0.5, peak * (waveH / 2 - 1))
+      const half = Math.max(0.5, Math.min(1, peak * gain) * (waveH / 2 - 1))
       ctx.fillRect(x, mid - half, 1, half * 2)
     }
   }

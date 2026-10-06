@@ -6,7 +6,7 @@
 // address is kept for the day only (deleted the next day). Nothing else is read or kept: no cookie,
 // no id, nothing about the person or their files. Scripts are counted by /write itself.
 // Every other request is the static site, served as before.
-import { write, sha, clientKey, readBody } from './write.js'
+import { write, sha, clientKey, readBody, take } from './write.js'
 
 const EVENTS = {
   edit: 'People who started an edit (added a video, sound or picture)',
@@ -37,6 +37,27 @@ async function count(request, env) {
     await db.prepare('insert into counts (day, event, n) values (?1, ?2, 1) on conflict (day, event) do update set n = n + 1').bind(day, event).run()
   }
   return new Response(null, { status: 204 })
+}
+
+// POST /test-key {"key"}: is this the test copy's key? The one key is the TEST_KEY secret; change or remove it and
+// every test copy stops at its next check. The Windows app asks from its own process, so there is no page Origin.
+// Guessing is limited to 30 tries a day per address (a 16-character key cannot be found that way anyway).
+async function testKey(request, env) {
+  if (request.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } })
+  if (!env.IP_SALT) return new Response(null, { status: 503 })
+  const raw = await readBody(request, 200)
+  let key = ''
+  try {
+    key = String(JSON.parse(raw ?? '')?.key ?? '')
+  } catch {
+    return Response.json({ ok: false }, { status: 400 })
+  }
+  const day = new Date().toISOString().slice(0, 10)
+  const who = await sha(`${env.IP_SALT}|key|${day}|${clientKey(request.headers.get('CF-Connecting-IP') ?? 'unknown')}`)
+  if (!(await take(env.editor_usage, day, `${who}k`, 30))) return new Response(null, { status: 429 })
+  // Compared as fingerprints, so the time taken says nothing about how much of the key was right
+  const ok = !!env.TEST_KEY && (await sha(`k|${key}`)) === (await sha(`k|${env.TEST_KEY}`))
+  return Response.json({ ok }, { headers: { 'Cache-Control': 'no-store' } })
 }
 
 // This month's numbers and the numbers since counting started, as one plain email.
@@ -77,6 +98,7 @@ export default {
   async fetch(request, env) {
     const url = new URL(request.url)
     if (url.pathname === '/count') return count(request, env)
+    if (url.pathname === '/test-key') return testKey(request, env)
     // ORIGIN in .dev.vars lets a local test through (wrangler dev rewrites Origin to http://editor.postbarrel.com).
     // Live it is always https://editor.postbarrel.com.
     if (url.pathname === '/write') return write(request, env, env.ORIGIN ?? ORIGIN)

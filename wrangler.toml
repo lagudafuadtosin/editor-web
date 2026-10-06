@@ -18,8 +18,8 @@ preview_urls = false
 directory = "./dist"
 binding = "ASSETS"
 not_found_handling = "single-page-application"
-# The tally and the free script writer go to the Worker. Everything else is served straight from dist/.
-run_worker_first = ["/count", "/write"]
+# The tally, the free script writer and the test copy key check go to the Worker. Everything else is served straight from dist/.
+run_worker_first = ["/count", "/write", "/test-key"]
 
 # The use emailed to the owner once a week, Monday 07:00 UTC. RESEND_API_KEY is a secret.
 [triggers]

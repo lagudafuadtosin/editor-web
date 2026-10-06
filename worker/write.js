@@ -156,7 +156,7 @@ async function human(env, token, ip) {
 
 // Takes one slot from a counter, in one statement, so parallel requests cannot all slip under
 // the limit. Returns false when the counter is already at the limit.
-async function take(db, day, who, limit) {
+export async function take(db, day, who, limit) {
   const row = await db
     .prepare('insert into write_limits (day, who, n) values (?1, ?2, 1) on conflict (day, who) do update set n = n + 1 where n < ?3 returning n')
     .bind(day, who, limit)

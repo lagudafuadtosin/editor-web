@@ -1,5 +1,7 @@
 # Postbarrel Vid Editor (web)
 
+[![Downloads](https://img.shields.io/github/downloads/lagudafuadtosin/editor-web/total?label=downloads&style=for-the-badge&color=2ea44f)](https://github.com/lagudafuadtosin/editor-web/releases/latest)
+
 The free web version of Postbarrel Vid Editor, for anyone to use in the browser at editor.postbarrel.com.
 
 - Free, no sign-in, nothing uploaded: files stay on the person's PC.

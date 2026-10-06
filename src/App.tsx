@@ -45,6 +45,7 @@ import { findBeats, findCuts } from './analyse'
 import { makeTitle, TITLES } from './titles'
 import { Viewer, type Place } from './Viewer'
 import { longestKeyGap, makeProxy, SLOW_KEY_GAP, wantsProxy } from './proxy'
+import { findCopy, newCopy } from './proxyStore'
 import { activeId, activeName, cutOutForNest, deleteSeq, newSeq, renameSeq, seqById, seqHash, seqList, switchSeq, usedBy, type Seq } from './sequences'
 import { ChevronDown } from 'lucide-react'
 import { flattenMulticam, syncBySound, type Cut } from './multicam'
@@ -534,8 +535,8 @@ export default function App() {
         }
         const source: Source = { id: src.id, name: src.name, media, file: { name: src.name, size: src.size, lastModified: src.lastModified } }
         // Its preview copy, if one was made before.
-        const proxyBlob = await takeFor(`proxy:${keyOf(src)}`).catch(() => undefined)
-        if (proxyBlob) source.proxy = await openMedia(new File([proxyBlob], `${src.name} (preview copy).mp4`, { type: 'video/mp4' })).catch(() => undefined)
+        const proxyFile = (await findCopy(keyOf(src))) ?? (await takeFor(`proxy:${keyOf(src)}`).catch(() => undefined)) // older copies were kept with the takes
+        if (proxyFile) source.proxy = await openMedia(new File([proxyFile], `${src.name} (preview copy).mp4`, { type: 'video/mp4' })).catch(() => undefined)
         opened.push(source)
         buildOverview(source, (o) => setOverviews((m) => new Map(m).set(source.id, o))).catch(() => {})
       }
@@ -1587,9 +1588,14 @@ export default function App() {
     if (proxyJobs.current.has(s.id)) return true
     proxyJobs.current.add(s.id)
     try {
-      const blob = await makeProxy(s.media, (f) => setNotice(`${label}: ${Math.round(f * 100)}%`))
-      if (s.file) await saveTake(`proxy:${keyOf(s.file)}`, blob).catch(() => {})
-      const proxy = await openMedia(new File([blob], `${s.name} (preview copy).mp4`, { type: 'video/mp4' }))
+      const copy = await newCopy(s.file ? keyOf(s.file) : `${s.name}|${s.id}`)
+      try {
+        await makeProxy(s.media, (f) => setNotice(`${label}: ${Math.round(f * 100)}%`), copy.writable as never)
+      } catch (err) {
+        await copy.drop()
+        throw err
+      }
+      const proxy = await openMedia(await copy.done())
       setSources((list) => list.map((x) => (x.id === s.id ? { ...x, proxy } : x)))
       if (sayDone) setNotice(`${s.name}: preview copy ready, it now moves smoothly. Export still uses the original.`)
       return true

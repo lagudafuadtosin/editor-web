@@ -1,4 +1,4 @@
-import { BufferTarget, CanvasSink, CanvasSource, EncodedPacketSink, getFirstEncodableVideoCodec, Mp4OutputFormat, Output, QUALITY_MEDIUM } from 'mediabunny'
+import { CanvasSink, CanvasSource, EncodedPacketSink, StreamTarget, type StreamTargetChunk, getFirstEncodableVideoCodec, Mp4OutputFormat, Output, QUALITY_MEDIUM } from 'mediabunny'
 import type { OpenedMedia } from './media'
 
 // Preview copies (proxies): a small, easy-to-decode copy of a big video, used only to play it in the editor.
@@ -32,7 +32,8 @@ export async function longestKeyGap(m: OpenedMedia): Promise<number> {
 }
 export const SLOW_KEY_GAP = 10
 
-export async function makeProxy(m: OpenedMedia, onProgress: (f: number) => void): Promise<Blob> {
+// Written straight into the file it is given, a piece at a time, so a long video never has to fit in memory.
+export async function makeProxy(m: OpenedMedia, onProgress: (f: number) => void, writable: WritableStream<StreamTargetChunk>): Promise<void> {
   const v = m.videoTrack
   if (!v) throw new Error('no picture to copy')
   const scale = 540 / Math.min(v.displayWidth, v.displayHeight)
@@ -40,7 +41,7 @@ export async function makeProxy(m: OpenedMedia, onProgress: (f: number) => void)
   const height = even(v.displayHeight * Math.min(1, scale))
   const codec = await getFirstEncodableVideoCodec(['avc', 'vp9'], { width, height })
   if (!codec) throw new Error('this computer cannot encode the copy')
-  const output = new Output({ format: new Mp4OutputFormat(), target: new BufferTarget() })
+  const output = new Output({ format: new Mp4OutputFormat(), target: new StreamTarget(writable, { chunked: true }) })
   const canvas = new OffscreenCanvas(width, height)
   const ctx = canvas.getContext('2d')!
   const source = new CanvasSource(canvas, { codec, bitrate: QUALITY_MEDIUM, keyFrameInterval: 1 })
@@ -54,5 +55,4 @@ export async function makeProxy(m: OpenedMedia, onProgress: (f: number) => void)
   }
   await output.finalize()
   onProgress(1)
-  return new Blob([(output.target as BufferTarget).buffer!], { type: 'video/mp4' })
 }

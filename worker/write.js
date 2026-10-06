@@ -15,6 +15,42 @@ const MONTH_CAP = 1500 // about $4.50 at ~$0.003 a script
 const MAX_NOTES = 4000
 const MAX_BODY = 20000
 const PROBES_PER_DAY = 10
+// Tries a day for each address, refused or not, never given back: refused notes cannot be sent again and again for free
+const ATTEMPTS_PER_DAY = 15
+// The most scripts in one day for everyone together, so nobody can use up the whole month in a day
+const DAY_CAP = Math.ceil(MONTH_CAP / 15)
+
+// The person behind an address. On IPv6 one connection usually holds a whole /64 block, so the block is the person.
+export function clientKey(ip) {
+  if (!ip || !ip.includes(':')) return ip || 'unknown'
+  const [head, tail = ''] = ip.toLowerCase().split('::')
+  const a = head ? head.split(':') : []
+  const b = tail ? tail.split(':') : []
+  const full = ip.includes('::') ? [...a, ...Array(Math.max(0, 8 - a.length - b.length)).fill('0'), ...b] : a
+  return full.slice(0, 4).map((x) => x.padStart(4, '0')).join(':') + '::/64'
+}
+
+// Reads a request body but stops at max bytes, so a huge body sent without its length cannot use up the Worker.
+export async function readBody(request, max) {
+  if (!request.body) return ''
+  const reader = request.body.getReader()
+  const parts = []
+  let size = 0
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    size += value.byteLength
+    if (size > max) {
+      await reader.cancel().catch(() => {})
+      return null
+    }
+    parts.push(value)
+  }
+  const all = new Uint8Array(size)
+  let at = 0
+  for (const p of parts) { all.set(p, at); at += p.byteLength }
+  return new TextDecoder().decode(all)
+}
 
 const KINDS = {
   review: 'a review of a film, series, anime, book or game: their honest verdict, what worked, what did not, who it is for',
@@ -137,10 +173,11 @@ export async function write(request, env, origin) {
   if (request.headers.get('Origin') !== origin) return new Response(null, { status: 403 })
   if (Number(request.headers.get('Content-Length') ?? 0) > MAX_BODY) return say(413, 'That is too long. Keep your notes under 4,000 characters.')
 
+  if (!env.IP_SALT) return say(503, 'The writer is not available just now.') // never fall back to a guessable salt
   let body
   try {
-    const raw = await request.text()
-    if (raw.length > MAX_BODY) return say(413, 'That is too long. Keep your notes under 4,000 characters.')
+    const raw = await readBody(request, MAX_BODY)
+    if (raw === null) return say(413, 'That is too long. Keep your notes under 4,000 characters.')
     body = JSON.parse(raw)
   } catch {
     return say(400, 'That did not come through. Try again.')
@@ -162,8 +199,11 @@ export async function write(request, env, origin) {
   const monthKey = `m${day.slice(0, 7)}`
 
   // Only a scrambled form of the address is kept, and only for today.
-  const who = await sha(`${env.IP_SALT}|${day}|${ip}`)
+  const who = await sha(`${env.IP_SALT}|${day}|${clientKey(ip)}`)
   await db.prepare("delete from write_limits where day < ?1 and day not like 'm%'").bind(day).run()
+  if (!(await take(db, day, `${who}a`, ATTEMPTS_PER_DAY))) {
+    return say(429, `You have used your ${PER_DAY} free scripts for today. More tomorrow, or try Postbarrel for researched scripts.`)
+  }
 
   // The probe: before the first write, one look at whether the notes are enough. When something the
   // script cannot exist without is missing, one question goes back instead of a script. It has its
@@ -188,11 +228,15 @@ export async function write(request, env, origin) {
   if (!(await take(db, day, who, PER_DAY))) {
     return say(429, `You have used your ${PER_DAY} free scripts for today. More tomorrow, or try Postbarrel for researched scripts.`)
   }
-  if (!(await take(db, monthKey, 'month', MONTH_CAP))) {
+  if (!(await take(db, day, 'all', DAY_CAP))) {
     await giveBack(db, day, who)
+    return say(429, 'The free writer has written all its scripts for today. It starts again tomorrow.')
+  }
+  if (!(await take(db, monthKey, 'month', MONTH_CAP))) {
+    await Promise.all([giveBack(db, day, who), giveBack(db, day, 'all')])
     return say(429, 'The free writer has written all its scripts for this month. It starts again on the 1st.')
   }
-  const refund = () => Promise.all([giveBack(db, day, who), giveBack(db, monthKey, 'month')])
+  const refund = () => Promise.all([giveBack(db, day, who), giveBack(db, day, 'all'), giveBack(db, monthKey, 'month')])
 
   const [lo, hi] = band
   const material = answer && question ? `${notes}\n\nAsked: ${question}\nTheir answer: ${answer}` : answer ? `${notes}\n\n${answer}` : notes
@@ -206,7 +250,8 @@ export async function write(request, env, origin) {
     out = parse(await ask(env, messages))
     // One correction pass when the length misses the band
     const n = words(out.script)
-    if (n < lo * 0.85 || n > hi * 1.15) {
+    // No second call for a refusal, a crisis answer or nothing at all
+    if (out.script && !/^(REFUSE|CRISIS)\b/.test(out.script) && (n < lo * 0.85 || n > hi * 1.15)) {
       const fixed = parse(await ask(env, [
         ...messages,
         { role: 'assistant', content: out.script },

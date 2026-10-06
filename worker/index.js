@@ -6,7 +6,7 @@
 // address is kept for the day only (deleted the next day). Nothing else is read or kept: no cookie,
 // no id, nothing about the person or their files. Scripts are counted by /write itself.
 // Every other request is the static site, served as before.
-import { write, sha } from './write.js'
+import { write, sha, clientKey, readBody } from './write.js'
 
 const EVENTS = {
   edit: 'People who started an edit (added a video, sound or picture)',
@@ -23,12 +23,13 @@ const FROM = 'Postbarrel Vid Editor <hello@postbarrel.com>'
 async function count(request, env) {
   if (request.method !== 'POST') return new Response(null, { status: 405, headers: { Allow: 'POST' } })
   if (request.headers.get('Origin') !== ORIGIN) return new Response(null, { status: 403 })
-  const event = (await request.text()).slice(0, 10)
+  if (!env.IP_SALT) return new Response(null, { status: 503 }) // never fall back to a guessable salt
+  const event = ((await readBody(request, 64)) ?? '').slice(0, 10)
   // Scripts are counted by /write when one is really written, never from the page
   if (!(event in EVENTS) || event === 'script') return new Response(null, { status: 400 })
   const db = env.editor_usage
   const day = new Date().toISOString().slice(0, 10)
-  const who = await sha(`${env.IP_SALT}|count|${day}|${request.headers.get('CF-Connecting-IP') ?? 'unknown'}`)
+  const who = await sha(`${env.IP_SALT}|count|${day}|${clientKey(request.headers.get('CF-Connecting-IP') ?? 'unknown')}`)
   await db.prepare('delete from use_seen where day < ?1').bind(day).run()
   // Only the first time today for this person and this word adds to the number
   const seen = await db.prepare('insert or ignore into use_seen (day, event, who) values (?1, ?2, ?3)').bind(day, event, who).run()

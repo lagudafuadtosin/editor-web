@@ -68,7 +68,7 @@ import {
 } from './model'
 import {
   Captions, Film, FilePlus, House, FolderOpen, LayoutGrid, Layers, Moon, Music, Pause, Play, Plus, Redo2, Save, Scissors,
-  ScrollText, SkipBack, SkipForward, Square, Sun, Trash2, Type, Undo2, Upload, Volume2, ZoomIn, ZoomOut, MousePointerClick,
+  PenLine, ScrollText, SkipBack, SkipForward, Square, Sun, Trash2, Type, Undo2, Upload, Volume2, ZoomIn, ZoomOut, MousePointerClick,
 } from 'lucide-react'
 import { defaultShape, drawingFrom, shapeBox, SHAPES, STICKERS, type ShapeKind } from './shape'
 import { ShapePanel } from './ShapePanel'
@@ -2354,6 +2354,7 @@ export default function App() {
         <div className="tabs">
           <button title="Edit" className={mode === 'edit' ? 'on' : ''} onClick={blurThen(() => switchTab('edit'))}><Film size={15} /> Edit</button>
           <button title="Teleprompter" className={mode === 'prompt' ? 'on' : ''} onClick={blurThen(() => switchTab('prompt'))}><ScrollText size={15} /> Teleprompter</button>
+          {IS_WEB && <a title="Write your script with Postbarrel" href="https://postbarrel.com" target="_blank" rel="noopener"><PenLine size={15} /> Script</a>}
         </div>
         <div className="title">
           {IS_WEB ? <span className="edition">Free web version</span> : renamingTop ? (

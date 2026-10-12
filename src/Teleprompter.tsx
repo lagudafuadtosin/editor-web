@@ -236,6 +236,7 @@ export function Teleprompter({ active, frameAspect, script, onScript, onTake }: 
           <textarea value={script} onChange={(e) => onScript(e.target.value)} disabled={recording}
             placeholder="Paste or type what you will say. It is kept with this edit." />
         </label>
+        <p className="prompter-note">No script yet? <a href="https://postbarrel.com" target="_blank" rel="noopener">Write one with Postbarrel</a></p>
         <label className="slider-row">
           <span>Speed</span>
           <input type="range" min={60} max={300} step={5} value={wpm} onChange={(e) => setWpm(Number(e.target.value))} />

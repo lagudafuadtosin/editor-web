@@ -19,7 +19,6 @@ import { ContextMenu, type MenuItem } from './ContextMenu'
 import { IS_WEB, openDownload, DOWNLOAD_URL } from './edition'
 import { Welcome } from './Welcome'
 import { countUse } from './usage'
-import { ScriptWriter } from './ScriptWriter'
 import { checkFile } from './gate'
 import { browserNoteSeen, browserOk, closeBrowserNote } from './browser'
 import { AppMore } from './AppMore'
@@ -69,7 +68,7 @@ import {
 } from './model'
 import {
   Captions, Film, FilePlus, House, FolderOpen, Image as ImageIcon, LayoutGrid, Layers, Moon, Music, Pause, Play, Plus, Redo2, Save, Scissors,
-  PenLine, ScrollText, SkipBack, SkipForward, Square, Sun, Trash2, Type, Undo2, Upload, Volume2, ZoomIn, ZoomOut, MousePointerClick,
+  ScrollText, SkipBack, SkipForward, Square, Sun, Trash2, Type, Undo2, Upload, Volume2, ZoomIn, ZoomOut, MousePointerClick,
 } from 'lucide-react'
 import { defaultShape, drawingFrom, shapeBox, SHAPES, STICKERS, type ShapeKind } from './shape'
 import { ShapePanel } from './ShapePanel'
@@ -2349,7 +2348,6 @@ export default function App() {
         </div>
         <div className="tabs">
           <button title="Edit" className={mode === 'edit' ? 'on' : ''} onClick={blurThen(() => switchTab('edit'))}><Film size={15} /> Edit</button>
-          {IS_WEB && <button title="Write a script from your notes" className={mode === 'script' ? 'on' : ''} onClick={blurThen(() => switchTab('script'))}><PenLine size={15} /> Script</button>}
           <button title="Teleprompter" className={mode === 'prompt' ? 'on' : ''} onClick={blurThen(() => switchTab('prompt'))}><ScrollText size={15} /> Teleprompter</button>
           <button title="Picture" className={mode === 'picture' ? 'on' : ''} onClick={blurThen(() => switchTab('picture'))}><ImageIcon size={15} /> Picture</button>
         </div>
@@ -2512,15 +2510,6 @@ export default function App() {
           saveTake(keyOf(file), file).catch(() => setError('The take is on the timeline but could not be kept in this browser. Save it as a file.'))
         }}
       />
-      {IS_WEB && (
-        <ScriptWriter
-          active={mode === 'script'}
-          onUse={(script) => {
-            setHistory((h) => ({ ...h, present: { ...h.present, script } }))
-            switchTab('prompt')
-          }}
-        />
-      )}
       <div className="edit-view" hidden={mode === 'prompt' || mode === 'script'}>
       <nav className="rail">
         {!IS_WEB && (

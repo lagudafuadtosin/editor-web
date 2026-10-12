@@ -6,7 +6,7 @@
 // address is kept for the day only (deleted the next day). Nothing else is read or kept: no cookie,
 // no id, nothing about the person or their files. Scripts are counted by /write itself.
 // Every other request is the static site, served as before.
-import { write, sha, clientKey, readBody, take } from './write.js'
+import { sha, clientKey, readBody, take } from './write.js'
 
 const EVENTS = {
   edit: 'People who started an edit (added a video, sound or picture)',
@@ -99,9 +99,8 @@ export default {
     const url = new URL(request.url)
     if (url.pathname === '/count') return count(request, env)
     if (url.pathname === '/test-key') return testKey(request, env)
-    // ORIGIN in .dev.vars lets a local test through (wrangler dev rewrites Origin to http://editor.postbarrel.com).
-    // Live it is always https://editor.postbarrel.com.
-    if (url.pathname === '/write') return write(request, env, env.ORIGIN ?? ORIGIN)
+    // The free script writer is switched off (12 Oct 2026). Old pages and app copies show this message.
+    if (url.pathname === '/write') return Response.json({ message: 'Script writing has moved to Postbarrel: postbarrel.com' }, { status: 410 })
     return env.ASSETS.fetch(request)
   },
   async scheduled(_event, env, ctx) {

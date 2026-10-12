@@ -67,7 +67,7 @@ import {
   trackedPoint, insertOnMain, overwriteOnMain, localAt, DEFAULT_KEY, DEFAULT_SHADE, DEFAULT_MASK, type Mask, type Matte, NO_FX, NO_SFX, addKeyAt, placeAt, transformAt, type Ease, shown, TRANSITIONS, type Transition,
 } from './model'
 import {
-  Captions, Film, FilePlus, House, FolderOpen, Image as ImageIcon, LayoutGrid, Layers, Moon, Music, Pause, Play, Plus, Redo2, Save, Scissors,
+  Captions, Film, FilePlus, House, FolderOpen, LayoutGrid, Layers, Moon, Music, Pause, Play, Plus, Redo2, Save, Scissors,
   ScrollText, SkipBack, SkipForward, Square, Sun, Trash2, Type, Undo2, Upload, Volume2, ZoomIn, ZoomOut, MousePointerClick,
 } from 'lucide-react'
 import { defaultShape, drawingFrom, shapeBox, SHAPES, STICKERS, type ShapeKind } from './shape'
@@ -1840,6 +1840,11 @@ export default function App() {
     setMode(next)
   }
 
+  // The Picture tab is gone: an edit saved while it was open comes back as the edit it was swapped out of.
+  useEffect(() => {
+    if (mode !== 'picture' && inPicture(project)) setHistory({ past: [], present: toEdit(project), future: [] })
+  }, [mode, project])
+
   // The picture takes the shape of its photo: the selected one, or the biggest.
   function photoSize() {
     const pics = layout(project).filter((pl) => pl.clip.kind === 'image' && pl.clip.imageSize)
@@ -2349,7 +2354,6 @@ export default function App() {
         <div className="tabs">
           <button title="Edit" className={mode === 'edit' ? 'on' : ''} onClick={blurThen(() => switchTab('edit'))}><Film size={15} /> Edit</button>
           <button title="Teleprompter" className={mode === 'prompt' ? 'on' : ''} onClick={blurThen(() => switchTab('prompt'))}><ScrollText size={15} /> Teleprompter</button>
-          <button title="Picture" className={mode === 'picture' ? 'on' : ''} onClick={blurThen(() => switchTab('picture'))}><ImageIcon size={15} /> Picture</button>
         </div>
         <div className="title">
           {IS_WEB ? <span className="edition">Free web version</span> : renamingTop ? (

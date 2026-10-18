@@ -21,21 +21,42 @@ type Props = {
   picks?: { dots: [number, number, 0 | 1][]; onPick: (x: number, y: number, keep: boolean) => void }
   // Erase: painting over what to take away. Strokes so far are shown at the brush width (frame pixels).
   brush?: { strokes: [number, number][][]; width: number; onStroke: (points: [number, number][]) => void }
+  // Drawing a straight line or arrow: press where it starts, let go where it ends (frame pixels).
+  lineDraw?: (x0: number, y0: number, x1: number, y1: number) => void
+  lineEnds?: boolean // the selected clip is a line or arrow: its two ends are grabbed instead of the sides
+  onDoubleAt?: (frameX: number, frameY: number) => void // a double-click anywhere on the picture
 }
 
-type Handle = 'move' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
+type Handle = 'move' | 'rot' | 'endA' | 'endB' | 'n' | 's' | 'e' | 'w' | 'ne' | 'nw' | 'se' | 'sw'
 const HANDLES: Handle[] = ['nw', 'n', 'ne', 'e', 'se', 's', 'sw', 'w']
 const SNAP_PX = 12 // how close (in screen pixels) the centre must come to click into place
 const MIN = 10
 
+// Holding Shift keeps a line level, upright or at 45°.
+function snapEnd(x0: number, y0: number, x1: number, y1: number, shift: boolean): [number, number] {
+  if (!shift) return [x1, y1]
+  const len = Math.hypot(x1 - x0, y1 - y0)
+  const a = Math.round(Math.atan2(y1 - y0, x1 - x0) / (Math.PI / 4)) * (Math.PI / 4)
+  return [x0 + len * Math.cos(a), y0 + len * Math.sin(a)]
+}
+
+// A line's box from its two ends: centred between them, as long as they are apart, turned to point from one to the other.
+function lineBox(t: Transform, x0: number, y0: number, x1: number, y1: number): Transform {
+  return { ...t, x: (x0 + x1) / 2, y: (y0 + y1) / 2, w: Math.max(MIN, Math.hypot(x1 - x0, y1 - y0)), rotation: (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI }
+}
+
 // The box drawn over the preview for the selected clip: drag inside to move it, drag a corner or a side to resize.
-export function PreviewOverlay({ frame, transform, onLive, onCommit, onPick, textMode, onEditText, onActivate, pen, boxDraw, freehand, picks, brush }: Props) {
+export function PreviewOverlay({ frame, transform, onLive, onCommit, onPick, textMode, onEditText, onActivate, pen, boxDraw, freehand, picks, brush, lineDraw, lineEnds, onDoubleAt }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   // Which centre lines the box is snapped to while it is being dragged (shown as guide lines).
   const [guides, setGuides] = useState({ x: false, y: false })
   const drag = useRef<{ handle: Handle; x0: number; y0: number; t0: Transform; k: number } | null>(null)
 
   const scale = () => ref.current!.getBoundingClientRect().width / frame.w
+  const toFrame = (e: { clientX: number; clientY: number }): [number, number] => {
+    const r = ref.current!.getBoundingClientRect()
+    return [((e.clientX - r.left) / r.width) * frame.w, ((e.clientY - r.top) / r.height) * frame.h]
+  }
 
   function start(handle: Handle) {
     return (e: React.PointerEvent) => {
@@ -54,6 +75,26 @@ export function PreviewOverlay({ frame, transform, onLive, onCommit, onPick, tex
     const t0 = d.t0
     const dx = (e.clientX - d.x0) / d.k
     const dy = (e.clientY - d.y0) / d.k
+    if (d.handle === 'rot') {
+      // Turn the box to face the pointer, the grip being straight above the middle. Shift: steps of 15°.
+      const [px, py] = toFrame(e)
+      let deg = (Math.atan2(py - t0.y, px - t0.x) * 180) / Math.PI + 90
+      if (e.shiftKey) deg = Math.round(deg / 15) * 15
+      deg = ((deg + 540) % 360) - 180
+      onLive({ ...t0, rotation: deg })
+      return
+    }
+    if (d.handle === 'endA' || d.handle === 'endB') {
+      // One end follows the pointer, the other stays put.
+      const a0 = (t0.rotation * Math.PI) / 180
+      const hx = (t0.w / 2) * Math.cos(a0)
+      const hy = (t0.w / 2) * Math.sin(a0)
+      const [fx, fy] = d.handle === 'endA' ? [t0.x + hx, t0.y + hy] : [t0.x - hx, t0.y - hy]
+      const [mx, my] = d.handle === 'endA' ? [t0.x - hx + dx, t0.y - hy + dy] : [t0.x + hx + dx, t0.y + hy + dy]
+      const [ex, ey] = snapEnd(fx, fy, mx, my, e.shiftKey)
+      onLive(d.handle === 'endA' ? lineBox(t0, ex, ey, fx, fy) : lineBox(t0, fx, fy, ex, ey))
+      return
+    }
     if (d.handle === 'move') {
       let x = t0.x + dx
       let y = t0.y + dy
@@ -93,7 +134,8 @@ export function PreviewOverlay({ frame, transform, onLive, onCommit, onPick, tex
       onLive({ ...t0, w: nw, h: nh, x: t0.x + ox * cos - oy * sin, y: t0.y + ox * sin + oy * cos }, f)
       return
     }
-    if (t0.keepRatio) {
+    // Shift does the opposite of the Keep proportions box while you drag.
+    if (t0.keepRatio !== e.shiftKey) {
       // Same shape: scale both sides by how far the dragged side or corner moved.
       const f = sx && sy ? Math.max(w / t0.w, h / t0.h) : sx ? w / t0.w : h / t0.h
       w = t0.w * f
@@ -210,6 +252,35 @@ export function PreviewOverlay({ frame, transform, onLive, onCommit, onPick, tex
     )
   }
 
+  if (lineDraw) {
+    const ends = band
+    return (
+      <div className="overlay pen-mode" ref={ref}
+        onPointerDown={(e) => { e.currentTarget.setPointerCapture(e.pointerId); const [x, y] = toFrame(e); bandStart.current = [x, y]; setBand([x, y, x, y]) }}
+        onPointerMove={(e) => {
+          const s = bandStart.current
+          if (!s || !e.buttons) return
+          const [x, y] = toFrame(e)
+          setBand([s[0], s[1], ...snapEnd(s[0], s[1], x, y, e.shiftKey)])
+        }}
+        onPointerUp={(e) => {
+          const s = bandStart.current
+          bandStart.current = null
+          setBand(null)
+          if (!s) return
+          const [x, y] = toFrame(e)
+          const [ex, ey] = snapEnd(s[0], s[1], x, y, e.shiftKey)
+          if (Math.hypot(ex - s[0], ey - s[1]) > 8) lineDraw(s[0], s[1], ex, ey)
+        }}>
+        {ends && (
+          <svg viewBox={`0 0 ${frame.w} ${frame.h}`} preserveAspectRatio="none" className="pen-svg">
+            <line x1={ends[0]} y1={ends[1]} x2={ends[2]} y2={ends[3]} style={{ stroke: '#facc15', strokeWidth: frame.w / 80, strokeLinecap: 'round' }} />
+          </svg>
+        )}
+      </div>
+    )
+  }
+
   if (pen) {
     return (
       <div className="overlay pen-mode" ref={ref}
@@ -247,12 +318,31 @@ export function PreviewOverlay({ frame, transform, onLive, onCommit, onPick, tex
         const r = ref.current!.getBoundingClientRect()
         onPick(((e.clientX - r.left) / r.width) * frame.w, ((e.clientY - r.top) / r.height) * frame.h)
       }}
+      // One double-click opens text for typing, even when it was not picked before the first click.
+      onDoubleClick={(e) => {
+        if (!onDoubleAt) {
+          if (textMode) onEditText?.()
+          return
+        }
+        const [x, y] = toFrame(e)
+        onDoubleAt(x, y)
+      }}
     >
       {guides.x && <div className="guide vertical" />}
       {guides.y && <div className="guide horizontal" />}
       {box && (
-        <div className="sel-box" style={box} onPointerDown={start('move')} onDoubleClick={() => textMode && onEditText?.()}>
-          {HANDLES.map((h) => <span key={h} className={`grip ${h}`} onPointerDown={start(h)} />)}
+        <div className={`sel-box${lineEnds ? ' line-box' : ''}`} style={box} onPointerDown={start('move')}>
+          {lineEnds ? (
+            <>
+              <span className="grip w" title="Drag this end. Shift keeps it level, upright or at 45°" onPointerDown={start('endA')} />
+              <span className="grip e" title="Drag this end. Shift keeps it level, upright or at 45°" onPointerDown={start('endB')} />
+            </>
+          ) : (
+            <>
+              {HANDLES.map((h) => <span key={h} className={`grip ${h}`} onPointerDown={start(h)} />)}
+              <span className="grip rot" title="Drag to turn. Shift turns in steps of 15°" onPointerDown={start('rot')} />
+            </>
+          )}
         </div>
       )}
     </div>

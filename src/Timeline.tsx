@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { SHAPES } from './shape'
 import { IS_WEB } from './edition' // web version: ripple, roll, slip and slide drags are in the free app
 import { COLOR_MAX, layout, MIN_CLIP, shiftAfter, updateClip, type Clip, type Placed, type Project, type Source, type VolPoint } from './model'
@@ -36,6 +36,8 @@ type Props = {
   // A one-shot change to a clip, saved to undo at once (adding or deleting a volume point).
   onSetClip: (id: string, patch: Partial<Clip>) => void
   cached?: [number, number] | null // a rendered stretch, shown as a green line under the ruler
+  // Files dragged in from a folder and let go on the timeline: where they were let go.
+  onDropFiles: (dt: DataTransfer, at: { kind: 'video' | 'audio'; index: number; t: number; mainIndex: number }) => void
 }
 
 type Row = { kind: 'video' | 'audio'; index: number; height: number; label: string }
@@ -104,6 +106,21 @@ export function Timeline(p: Props) {
     dragRef.current = d
     setDragState(d)
   }
+
+  // Zooming keeps your place: the playhead stays where it was on screen, or comes to the middle if it was off screen.
+  const zoomWas = useRef(p.pxPerSec)
+  useLayoutEffect(() => {
+    // The box round the heads and the rows is what scrolls; the heads stay stuck on the left.
+    const tl = scrollRef.current
+    const el = tl?.parentElement
+    const was = zoomWas.current
+    zoomWas.current = p.pxPerSec
+    if (!tl || !el || was === p.pxPerSec) return
+    const view = el.clientWidth - tl.offsetLeft
+    const onScreen = p.time * was - el.scrollLeft
+    const keep = onScreen >= 0 && onScreen <= view ? onScreen : view / 2
+    el.scrollLeft = Math.max(0, p.time * p.pxPerSec - keep)
+  }, [p.pxPerSec, p.time])
 
   // Where an edge has locked on: a guide line is drawn there while dragging.
   const [snapLine, setSnapLine] = useState<number | null>(null)
@@ -193,6 +210,18 @@ export function Timeline(p: Props) {
       if (scrubX.current !== null) p.onSeek(Math.min(p.duration, timeAtClientX(scrubX.current)))
       scrubX.current = null
     })
+  }
+  // The playhead line over a clip: clicking a clip puts the playhead right under the mouse, so the next press
+  // there is meant for the clip (to drag it, or the clips picked with it). The press is handed to the clip.
+  // Over empty space the line is grabbed as before; the grip on the ruler always grabs it.
+  function pressLine(e: React.PointerEvent) {
+    const clip = document.elementsFromPoint(e.clientX, e.clientY).find((el) => el.classList.contains('clip'))
+    if (!clip) return startScrub(e)
+    e.stopPropagation()
+    clip.dispatchEvent(new PointerEvent('pointerdown', {
+      bubbles: true, cancelable: true, clientX: e.clientX, clientY: e.clientY, button: e.button, buttons: e.buttons,
+      pointerId: e.pointerId, pointerType: e.pointerType, isPrimary: e.isPrimary, ctrlKey: e.ctrlKey, metaKey: e.metaKey, shiftKey: e.shiftKey, altKey: e.altKey,
+    }))
   }
   function startScrub(e: React.PointerEvent) {
     if (e.button !== 0) return
@@ -400,6 +429,42 @@ export function Timeline(p: Props) {
   for (let t = 0; t <= p.duration + 20; t += step) ticks.push(t)
 
   const ghost = drag?.kind === 'move' && drag.moved ? dropTarget(drag) : null
+
+  // A file dragged in from a folder: a marker shows where it will land while it is over the timeline.
+  const [fileOver, setFileOver] = useState<{ row: Row; t: number; mainIndex: number; x: number } | null>(null)
+  const isFileDrag = (e: React.DragEvent) => Array.from(e.dataTransfer.types).includes('Files')
+  function fileTarget(e: React.DragEvent) {
+    const row = rowAtClientY(e.clientY)
+    const t = snap(timeAtClientX(e.clientX), '')
+    let mainIndex = 0
+    let x = t
+    if (row.kind === 'video' && row.index === 0) {
+      // Between two main clips: the nearer gap, by which half of a clip the mouse is over.
+      const main = placed.filter((m) => m.kind === 'video' && m.trackIndex === 0)
+      for (const m of main) if (timeAtClientX(e.clientX) > (m.start + m.end) / 2) mainIndex++
+      x = mainIndex ? main[mainIndex - 1].end : 0
+    }
+    return { row, t, mainIndex, x }
+  }
+  const fileDrag = {
+    onDragOver: (e: React.DragEvent) => {
+      if (!isFileDrag(e)) return
+      e.preventDefault()
+      e.dataTransfer.dropEffect = 'copy'
+      const f = fileTarget(e)
+      setFileOver((o) => (o && o.row.kind === f.row.kind && o.row.index === f.row.index && o.mainIndex === f.mainIndex && Math.abs(o.t - f.t) < 1e-3 ? o : f))
+    },
+    onDragLeave: (e: React.DragEvent) => {
+      if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setFileOver(null)
+    },
+    onDrop: (e: React.DragEvent) => {
+      if (!isFileDrag(e)) return
+      e.preventDefault()
+      const f = fileTarget(e)
+      setFileOver(null)
+      p.onDropFiles(e.dataTransfer, { kind: f.row.kind, index: f.row.index, t: f.t, mainIndex: f.mainIndex })
+    },
+  }
   const ghostLeft = ghost
     ? ghost.row.kind === 'video' && ghost.row.index === 0
       ? placed
@@ -421,7 +486,7 @@ export function Timeline(p: Props) {
     const color = c.kind === 'color' ? c.color ?? '#000000' : c.kind === 'text' ? '#d97706' : c.kind === 'image' ? '#0d9488' : c.kind === 'adjust' ? '#6d28d9' : c.kind === 'shape' ? '#0e7490' : COLORS[(sourceIndex.get(c.sourceId!) ?? 0) % COLORS.length]
     const dragging = drag?.kind === 'move' && drag.moved && drag.id === c.id
     // The other picked clips on layers and sound tracks slide along with the one being dragged.
-    const following = drag?.kind === 'move' && drag.moved && drag.id !== c.id && !(row.kind === 'video' && row.index === 0) && (p.selectedId === c.id || p.extraIds.includes(c.id)) && [p.selectedId, ...p.extraIds].includes(drag.id)
+    const following = drag?.kind === 'move' && drag.moved && drag.id !== c.id && (p.selectedId === c.id || p.extraIds.includes(c.id)) && [p.selectedId, ...p.extraIds].includes(drag.id)
     const w = Math.max(4, (pl.end - pl.start) * p.pxPerSec - 2)
     const main = row.kind === 'video' && row.index === 0
     const max = maxOut(c)
@@ -613,7 +678,7 @@ export function Timeline(p: Props) {
           )
         })}
       </div>
-    <div className="timeline" ref={scrollRef} onPointerMove={onPointerMove} onPointerUp={onPointerUp}>
+    <div className="timeline" ref={scrollRef} onPointerMove={onPointerMove} onPointerUp={onPointerUp} {...fileDrag}>
       <div className="tl-inner" ref={innerRef} style={{ width }}>
         <div className="ruler" onPointerDown={startScrub} title="Click or drag to move the playhead">
           {ticks.map((t) => (
@@ -670,6 +735,13 @@ export function Timeline(p: Props) {
               width: Math.abs(drag.x - drag.x0), height: Math.abs(drag.y - drag.y0),
             }} />
           })()}
+          {fileOver && (fileOver.row.kind === 'video' && fileOver.row.index === 0 ? (
+            <div className="file-drop slot" style={{ top: rowTop(fileOver.row), height: fileOver.row.height, left: fileOver.x * p.pxPerSec - 2 }} />
+          ) : (
+            <div className="file-drop" style={{ top: rowTop(fileOver.row) + 2, height: fileOver.row.height - 4, left: fileOver.x * p.pxPerSec }}>
+              <span>{label(fileOver.t)}</span>
+            </div>
+          ))}
           {ghost && (
             <div className={`ghost${ghost.above ? ' new-layer' : ''}`} style={{ top: ghost.above ? -26 : rowTop(ghost.row) + 2, height: ghost.above ? 24 : ghost.row.height - 4, left: ghostLeft * p.pxPerSec, width: ghost.len * p.pxPerSec }}>
               {ghost.above && <span>New layer</span>}
@@ -682,7 +754,7 @@ export function Timeline(p: Props) {
         <div className="playhead" style={{ left: p.time * p.pxPerSec }}>
           <div className="playhead-grip" onPointerDown={startScrub} title="Drag to move through the video" />
           {/* The whole line can be grabbed too, anywhere down the layers, not only at the top. */}
-          {!drag && <div className="playhead-line" onPointerDown={startScrub} title="Drag to move through the video" />}
+          {!drag && <div className="playhead-line" onPointerDown={pressLine} title="Drag to move through the video" />}
         </div>
       </div>
     </div>

@@ -427,7 +427,9 @@ function mapTracks(p: Project, fn: (t: Track) => Track): Project {
 // (the + and − buttons), or added when a clip is dropped where there is no room.
 export function tidy(p: Project): Project {
   const audio = p.audio.length ? p.audio : [{ id: newId('a'), kind: 'audio' as const, clips: [] }]
-  return { ...p, audio }
+  // Layer 1 is always there above Main, ready to drop onto.
+  const video = p.video.length > 1 ? p.video : [...p.video, { id: newId('v'), kind: 'video' as const, clips: [] }]
+  return { ...p, video, audio }
 }
 
 // Adds an empty track. With an index, it goes right after that one: above it for a layer, below it for sound.
@@ -473,6 +475,15 @@ export function replaceClip(p: Project, id: string, clips: Clip[]): Project {
 
 export function removeClip(p: Project, id: string): Project {
   return tidy(mapTracks(p, (t) => ({ ...t, clips: t.clips.filter((c) => c.id !== id) })))
+}
+
+// Puts a clip on the main track in a slot: 0 is before the first clip. Everything after it moves along.
+export function insertMainAt(p: Project, clip: Clip, index: number): Project {
+  return tidy({ ...p, video: p.video.map((t, i) => {
+    if (i) return t
+    const at = Math.max(0, Math.min(index, t.clips.length))
+    return { ...t, clips: [...t.clips.slice(0, at), clip, ...t.clips.slice(at)] }
+  }) })
 }
 
 export function appendToMain(p: Project, clip: Clip): Project {

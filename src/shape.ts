@@ -35,7 +35,8 @@ export function defaultShape(kind: ShapeKind): ShapeStyle {
 export function shapeBox(frame: Frame, kind: ShapeKind): Transform {
   const side = Math.min(frame.w, frame.h) * 0.4
   const [w, h] = kind === 'line' ? [frame.w * 0.6, 60] : kind === 'arrow' ? [side * 1.4, side * 0.6] : kind === 'bubble' ? [side * 1.4, side] : [side, side]
-  return { ...fitTransform(frame, frame.w, frame.h), w, h, keepRatio: kind !== 'line' && kind !== 'arrow' && kind !== 'bubble' }
+  // Each side moves on its own when resized. Shift while dragging, or the Keep proportions box, keeps the shape.
+  return { ...fitTransform(frame, frame.w, frame.h), w, h, keepRatio: false }
 }
 
 type Ctx = CanvasRenderingContext2D | OffscreenCanvasRenderingContext2D

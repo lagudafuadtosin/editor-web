@@ -3,7 +3,17 @@ import { Copy, FolderOpen, Moon, Pencil, Plus, Sun, Trash2, Film, MoreHorizontal
 import type { ProjectRecord } from './persist'
 import { InfoMenus } from './InfoMenus'
 import { ContextMenu, type MenuItem } from './ContextMenu'
-import { BUILT_IN, deleteTemplate, loadTemplates, saveTemplate } from './templates'
+import { BUILT_IN, deleteTemplate, loadTemplates, saveTemplate, templateFrame } from './templates'
+
+// The frame shapes New project offers. Nothing is picked the first time; after that the last one used is.
+const SHAPES = [
+  { id: '16:9', name: 'Landscape', size: '1920 × 1080', use: 'YouTube, websites, talks', w: 16, h: 9 },
+  { id: '9:16', name: 'Portrait', size: '1080 × 1920', use: 'TikTok, Reels, Shorts', w: 9, h: 16 },
+  { id: '1:1', name: 'Square', size: '1080 × 1080', use: 'Feeds, adverts', w: 1, h: 1 },
+  { id: '4:5', name: 'Portrait', size: '1080 × 1350', use: 'Instagram and Facebook posts', w: 4, h: 5 },
+]
+const SHAPE_KEY = 'editor.newShape'
+const lastShape = () => { try { return localStorage.getItem(SHAPE_KEY) } catch { return null } }
 
 // The home screen: every project on this PC, newest first, like Rush's project list.
 export function Home({ projects, theme, onTheme, asksName, onAskedName, onNew, onOpen, onOpenFile, onRename, onDuplicate, onDelete, onRestoreVersion }: {
@@ -12,7 +22,7 @@ export function Home({ projects, theme, onTheme, asksName, onAskedName, onNew, o
   onTheme: () => void
   asksName: boolean // opened from New in the editor: go straight to naming
   onAskedName: () => void
-  onNew: (name: string, template: string) => void
+  onNew: (name: string, template: string, shape: string) => void
   onOpen: (id: string) => void
   onOpenFile: () => void
   onRename: (id: string, name: string) => void
@@ -21,12 +31,17 @@ export function Home({ projects, theme, onTheme, asksName, onAskedName, onNew, o
   onRestoreVersion: (id: string, index: number) => void
 }) {
   const [template, setTemplate] = useState('blank')
+  const [shape, setShape] = useState<string | null>(lastShape)
   const [menu, setMenu] = useState<{ x: number; y: number; items: MenuItem[] } | null>(null)
   const [history, setHistory] = useState<ProjectRecord | null>(null)
   const [savingAs, setSavingAs] = useState<ProjectRecord | null>(null)
   const [templateName, setTemplateName] = useState('')
   const [, refresh] = useState(0)
   const own = loadTemplates()
+  // A saved template brings its own shape; ours take the one picked.
+  const ownFrame = templateFrame(template)
+  const ownShape = ownFrame ? (SHAPES.find((f) => f.w * ownFrame.h === f.h * ownFrame.w)?.id ?? 'other') : null
+  const shownShape = ownShape ?? shape
   const [naming, setNaming] = useState(false)
   const [draft, setDraft] = useState('')
   const [renaming, setRenaming] = useState<string | null>(null)
@@ -109,13 +124,34 @@ export function Home({ projects, theme, onTheme, asksName, onAskedName, onNew, o
 
       {naming && (
         <div className="modal-back" onPointerDown={(e) => e.target === e.currentTarget && setNaming(false)}>
-          <form className="modal" onSubmit={(e) => { e.preventDefault(); setNaming(false); onNew(draft.trim() || 'Untitled', template) }}>
+          <form className="modal new-project" onSubmit={(e) => {
+            e.preventDefault()
+            if (!shownShape) return
+            if (!ownShape) try { localStorage.setItem(SHAPE_KEY, shownShape) } catch { /* not remembered, asked again next time */ }
+            setNaming(false)
+            onNew(draft.trim() || 'Untitled', template, shownShape)
+          }}>
             <h2>New project</h2>
             <label>
               Name
               <input className="name-input" autoFocus value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Untitled" maxLength={120} />
             </label>
             <p className="note">Left empty, it is called Untitled. You can rename it any time.</p>
+            <div className="shape-field">
+              <span className="field-name">Frame shape</span>
+              <div className="shape-cards" role="radiogroup" aria-label="Frame shape">
+                {SHAPES.map((f) => (
+                  <button key={f.id} type="button" role="radio" aria-checked={shownShape === f.id} disabled={!!ownShape}
+                    className={`shape-card${shownShape === f.id ? ' on' : ''}`} onClick={() => setShape(f.id)}>
+                    <span className="shape-pic"><i style={{ aspectRatio: `${f.w} / ${f.h}`, [f.w >= f.h ? 'width' : 'height']: '100%' }} /></span>
+                    <b>{f.name} {f.id}</b>
+                    <small>{f.size}</small>
+                    <small>{f.use}</small>
+                  </button>
+                ))}
+              </div>
+              {ownShape ? <p className="note">This template has its own frame shape.</p> : !shownShape && <p className="note">Pick the shape of the video you are making. You can change it later.</p>}
+            </div>
             <label>
               Start from
               <select value={template} onChange={(e) => setTemplate(e.target.value)}>
@@ -128,7 +164,7 @@ export function Home({ projects, theme, onTheme, asksName, onAskedName, onNew, o
             )}
             <div className="modal-buttons">
               <button type="button" onClick={() => setNaming(false)}>Cancel</button>
-              <button type="submit" className="primary">Create</button>
+              <button type="submit" className="primary" disabled={!shownShape}>Create</button>
             </div>
           </form>
         </div>

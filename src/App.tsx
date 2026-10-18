@@ -61,10 +61,10 @@ import { hitBox, PreviewOverlay } from './PreviewOverlay'
 import { autoLook, NEUTRAL, type Look } from './look'
 import { buildOverview, type Overview } from './overview'
 import {
-  activeVideo, addMarker, addTrack, appendToMain, pruneEmptyTracks, closeGap, duration as projectDuration, emptyProject, findPlaced, FRAMES, gapAt, groupOf, insertAfter,
+  activeVideo, type Placed, addMarker, addTrack, appendToMain, pruneEmptyTracks, closeGap, duration as projectDuration, emptyProject, findPlaced, FRAMES, gapAt, groupOf, insertAfter,
   isLocked, layout, moveClip, newId, placeOnLayer, removeClip, removeMarker, removeTrack, reserveIdsIn, rippleDelete, setGroup, shiftAfter, sourceAt,
   fitTransform, sourceSize, splitClip, transformOf, updateClip, updateMarker, updateTrack, type Clip, type Project, type Source, type Transform,
-  trackedPoint, insertOnMain, overwriteOnMain, localAt, DEFAULT_KEY, DEFAULT_SHADE, DEFAULT_MASK, type Mask, type Matte, NO_FX, NO_SFX, addKeyAt, placeAt, transformAt, type Ease, shown, TRANSITIONS, type Transition,
+  trackedPoint, insertOnMain, insertMainAt, overwriteOnMain, localAt, DEFAULT_KEY, DEFAULT_SHADE, DEFAULT_MASK, type Mask, type Matte, NO_FX, NO_SFX, addKeyAt, placeAt, transformAt, type Ease, shown, TRANSITIONS, type Transition,
 } from './model'
 import {
   Captions, Film, FilePlus, House, FolderOpen, LayoutGrid, Layers, Moon, Music, Pause, Play, Plus, Redo2, Save, Scissors,
@@ -209,6 +209,7 @@ export default function App() {
   // Stickers to pick from, and freehand drawing on the preview.
   const [stickersOpen, setStickersOpen] = useState(false)
   const [drawingOn, setDrawingOn] = useState(false)
+  const [lineKind, setLineKind] = useState<'line' | 'arrow' | null>(null) // drawing a straight line or arrow on the preview
   const [collageOpen, setCollageOpen] = useState(false)
   const [browserNote, setBrowserNote] = useState(() => IS_WEB && !browserOk() && !browserNoteSeen())
   const [checked, setChecked] = useState<'waiting' | 'ok' | 'failed'>('waiting') // has the saved edit been looked for
@@ -263,7 +264,11 @@ export default function App() {
     setHistory((h) => (h.future.length ? { past: [...h.past, h.present], present: h.future[0], future: h.future.slice(1) } : h))
   }
 
-  async function addFile(file: File, handle?: Handle) {
+  // Where a file dragged in from a folder was let go on the timeline: a row, the time under the mouse, and the
+  // slot between clips when that row is the main track.
+  type DropAt = { kind: 'video' | 'audio'; index: number; t: number; mainIndex: number }
+
+  async function addFile(file: File, handle?: Handle, at?: DropAt) {
     setError(null)
     setLoading(true)
     try {
@@ -282,7 +287,8 @@ export default function App() {
         // A picture: 5 seconds on a layer at the playhead, fitted to the frame.
         const { id, bitmap } = await loadImage(file)
         const clip: Clip = { id: newId('c'), kind: 'image', imageId: id, imageSize: [bitmap.width, bitmap.height], label: file.name, start: 0, in: 0, out: 5 }
-        setHistory((h) => ({ past: [...h.past, h.present], present: placeOnLayer(h.present, clip, 'video', 1, playerRef.current?.now() ?? 0), future: [] }))
+        const layer = at?.kind === 'video' && at.index > 0 ? at.index : 1
+        setHistory((h) => ({ past: [...h.past, h.present], present: placeOnLayer(h.present, clip, 'video', layer, at?.t ?? playerRef.current?.now() ?? 0), future: [] }))
         setSelectedId(clip.id)
         return
       }
@@ -304,11 +310,15 @@ export default function App() {
       buildOverview(source, (o) => setOverviews((m) => new Map(m).set(source.id, o))).catch(() => {})
       const clip: Clip = { id: newId('c'), kind: 'media', sourceId: source.id, start: 0, in: 0, out: media.info.duration }
       // Video goes on the end of the main track. Sound-only files (music, voiceover) go on a sound track at the playhead.
-      setHistory((h) => ({
-        past: [...h.past, h.present],
-        present: media.videoTrack ? appendToMain(h.present, clip) : placeOnLayer(h.present, clip, 'audio', 0, playerRef.current?.now() ?? 0),
-        future: [],
-      }))
+      // Dropped on the timeline, it goes where it was let go: between two main clips, or at that time on a layer or sound track.
+      const now = playerRef.current?.now() ?? 0
+      const place = (p: Project): Project => {
+        if (!media.videoTrack) return placeOnLayer(p, clip, 'audio', at?.kind === 'audio' ? at.index : 0, at?.t ?? now)
+        if (at?.kind === 'video' && at.index === 0) return insertMainAt(p, clip, at.mainIndex)
+        if (at?.kind === 'video') return placeOnLayer(p, clip, 'video', at.index, at.t)
+        return appendToMain(p, clip)
+      }
+      setHistory((h) => ({ past: [...h.past, h.present], present: place(h.present), future: [] }))
       setSelectedId(clip.id)
       // A video with keyframes far apart moves slowly when you drag the playhead, so a preview copy is made
       // in the background straight away (as Premiere and Resolve do with proxies). Export still uses the original.
@@ -361,6 +371,22 @@ export default function App() {
   // Files dropped onto the editor from File Explorer are added like files picked with Media.
   const addFileRef = useRef(addFile)
   addFileRef.current = addFile
+  async function addDropped(dt: DataTransfer, at?: DropAt) {
+    // Ask for the lasting pointers before the first await, while the drop is still readable
+    const items = Array.from(dt.items).filter((i) => i.kind === 'file')
+    const handles = items.map((i) => (i as DataTransferItem & { getAsFileSystemHandle?: () => Promise<Handle | null> }).getAsFileSystemHandle?.())
+    const files = items.map((i) => i.getAsFile())
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      if (!file) continue
+      const handle = (await handles[i]?.catch(() => null)) ?? undefined
+      // Several files dropped on the main track go one after another into the same gap.
+      const here = at && { ...at, mainIndex: at.mainIndex + i }
+      await addFileRef.current(file, handle && (handle as { kind?: string }).kind === 'file' ? handle : undefined, here)
+    }
+  }
+  const addDroppedRef = useRef(addDropped)
+  addDroppedRef.current = addDropped
   useEffect(() => {
     const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes('Files')
     const over = (e: DragEvent) => {
@@ -371,16 +397,8 @@ export default function App() {
     const drop = async (e: DragEvent) => {
       if (!hasFiles(e) || !e.dataTransfer) return
       e.preventDefault()
-      // Ask for the lasting pointers before the first await, while the drop is still readable
-      const items = Array.from(e.dataTransfer.items).filter((i) => i.kind === 'file')
-      const handles = items.map((i) => (i as DataTransferItem & { getAsFileSystemHandle?: () => Promise<Handle | null> }).getAsFileSystemHandle?.())
-      const files = items.map((i) => i.getAsFile())
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i]
-        if (!file) continue
-        const handle = (await handles[i]?.catch(() => null)) ?? undefined
-        await addFileRef.current(file, handle && (handle as { kind?: string }).kind === 'file' ? handle : undefined)
-      }
+      if ((e.target as Element | null)?.closest?.('.timeline')) return // the timeline places its own drops
+      await addDroppedRef.current(e.dataTransfer)
     }
     window.addEventListener('dragover', over)
     window.addEventListener('drop', drop)
@@ -656,11 +674,11 @@ export default function App() {
     clearAutosave().catch(() => {})
   }
 
-  async function newProject(name: string, template = 'blank') {
+  async function newProject(name: string, template = 'blank', shape = '9:16') {
     resetEditor()
     const id = newProjectId()
     const now = Date.now()
-    const start = template === 'blank' ? emptyProject() : startFrom(template)
+    const start = startFrom(template, FRAMES.find((f) => f.id === shape)?.frame)
     await putProject({ id, name, createdAt: now, savedAt: now, saved: { version: 1, savedAt: now, name, project: start, sources: [], images: [] } })
     setHistory({ past: [], present: start, future: [] })
     createdAt.current = now
@@ -1008,9 +1026,11 @@ export default function App() {
       ] : which === 'block' ? [
         { label: 'Colour block', hint: 'a plain block, black to start with', onClick: addColourBlock },
         { label: 'Emoji and stickers…', onClick: () => setStickersOpen(true) },
-        { label: 'Draw…', hint: 'freehand, with the mouse', onClick: () => { setSelectedId(null); setDrawingOn(true) } },
+        { label: 'Pencil…', hint: 'draw freehand, like a pen', onClick: () => { setSelectedId(null); setLineKind(null); setDrawingOn(true) } },
         'line',
-        ...SHAPES.map((k) => ({ label: k.label, onClick: () => addShape(k.id) }) as MenuItem),
+        ...SHAPES.map((k) => (k.id === 'line' || k.id === 'arrow'
+          ? { label: `${k.label}…`, hint: 'press and drag on the picture', onClick: () => { setSelectedId(null); setDrawingOn(false); setLineKind(k.id as 'line' | 'arrow') } }
+          : { label: k.label, onClick: () => addShape(k.id) }) as MenuItem),
       ] : which === 'layer' ? [
         { label: 'New empty layer', onClick: () => commit(addTrack(project, 'video')) },
         { label: 'Adjustment layer', hint: 'changes everything under it', onClick: addAdjustment },
@@ -1134,6 +1154,32 @@ export default function App() {
     }
   }
 
+  // A straight line or arrow drawn from one point to another on the preview, on its own layer, picked for changing.
+  function addLine(kind: 'line' | 'arrow', x0: number, y0: number, x1: number, y1: number) {
+    const style = defaultShape(kind)
+    const len = Math.hypot(x1 - x0, y1 - y0)
+    const transform: Transform = {
+      ...shapeBox(project.frame, kind),
+      x: (x0 + x1) / 2, y: (y0 + y1) / 2, w: len,
+      h: kind === 'line' ? Math.max(40, style.strokeWidth * 3) : Math.max(60, len * 0.4),
+      rotation: (Math.atan2(y1 - y0, x1 - x0) * 180) / Math.PI, keepRatio: false,
+    }
+    const clip: Clip = { id: newId('c'), kind: 'shape', shape: style, transform, start: 0, in: 0, out: 5 }
+    commit(placeOnLayer(project, clip, 'video', project.video.length, playerRef.current?.now() ?? 0))
+    setLineKind(null)
+    setSelectedId(clip.id)
+    setOpen((o) => ({ ...o, shape: true }))
+  }
+
+  // A double-click on the picture: text under it opens for typing at once, picked or not.
+  function doubleAt(x: number, y: number) {
+    const hits = activeVideo(project, time).filter((pl) => pl.clip.kind !== 'adjust' && hitBox(transformAt(frame, sources, pl.clip, time - pl.start), x, y))
+    const top = hits[hits.length - 1]
+    if (!top) return
+    setSelectedId(top.clip.id)
+    if (top.clip.kind === 'text') editText()
+  }
+
   // A freehand stroke becomes a drawing on its own layer.
   function addStroke(points: [number, number][]) {
     const { style, box } = drawingFrom(points, '#facc15', Math.max(6, Math.round(frame.w / 80)))
@@ -1228,6 +1274,29 @@ export default function App() {
   const selectedPl = findPlaced(project, selectedId)
   const selected = selectedPl?.clip ?? null
   const selectedSource = selected?.sourceId ? sources.find((s) => s.id === selected.sourceId) ?? null : null
+
+  // Captions: the line under the playhead becomes the picked one, so the side list follows the video.
+  // Not while you are typing in the list, so the words you are changing never jump away.
+  const capGroupNow = selected?.caption
+  useEffect(() => {
+    if (!capGroupNow || (document.activeElement as HTMLElement | null)?.closest?.('.cap-lines')) return
+    const here = captionLines(project, capGroupNow).find((pl) => time >= pl.start - 1e-6 && time < pl.end)
+    if (here && here.clip.id !== selectedId) setSelectedId(here.clip.id)
+  }, [time, capGroupNow])
+  // Picking a caption (on the timeline, the picture or by the playhead) opens the list and brings its line into view.
+  const wasCaption = useRef(false)
+  useEffect(() => {
+    if (capGroupNow && !wasCaption.current) setOpen((o) => ({ ...o, lines: true }))
+    wasCaption.current = !!capGroupNow
+    if (!capGroupNow) return
+    requestAnimationFrame(() => {
+      const list = document.querySelector('.cap-lines') as HTMLElement | null
+      const row = list?.querySelector('.cap-line.current') as HTMLElement | null
+      if (!list || !row) return
+      const top = row.offsetTop - list.offsetTop
+      if (top < list.scrollTop || top + row.offsetHeight > list.scrollTop + list.clientHeight) list.scrollTop = top - list.clientHeight / 2 + row.offsetHeight / 2
+    })
+  }, [selectedId, capGroupNow])
   const fps = selectedSource?.media.info.video?.fps || sources.find((s) => s.media.info.video)?.media.info.video?.fps || 30
   // The selected clip's box, drawn over the preview only while it is showing at the playhead.
   const showingSelected = selectedPl && selectedPl.kind === 'video' && selectedPl.clip.kind !== 'adjust' && !project.video[selectedPl.trackIndex]?.hidden && time >= selectedPl.start - 1e-6 && time < selectedPl.end
@@ -2112,12 +2181,32 @@ export default function App() {
     const others = new Set([...(before?.clip.group ? groupOf(project, id) : []), ...(sel.includes(id) ? sel : [])])
     others.delete(id)
     const followers = [...others].map((o) => findPlaced(project, o)!).filter((o) => o && !(o.kind === 'video' && o.trackIndex === 0) && !isLocked(project, o.clip.id))
+    // Picked clips on the main track go with a main clip that is dragged: as one block in the new gap on Main,
+    // or onto the layer it was dropped on, keeping their spacing.
+    const onMain = (o: Placed | null | undefined): o is Placed => !!o && o.kind === 'video' && o.trackIndex === 0
+    const mainGroup = onMain(before)
+      ? [before, ...[...others].map((o) => findPlaced(project, o)).filter((o): o is Placed => onMain(o) && !isLocked(project, o.clip.id))].sort((a, b) => a.start - b.start)
+      : []
     // Lifted off first, so the moved clip never lands on top of one of its own group.
     let next = project
     // Dropped above the top layer: a new layer is made for it
     if (kind === 'video' && trackIndex >= next.video.length) next = addTrack(next, 'video')
     for (const o of followers) next = removeClip(next, o.clip.id)
-    next = moveClip(next, id, kind, trackIndex, start, mainIndex)
+    if (mainGroup.length > 1 && before) {
+      const moving = new Set(mainGroup.map((o) => o.clip.id))
+      const main = next.video[0].clips
+      if (kind === 'video' && trackIndex === 0) {
+        // The slot was counted among the main clips other than the dragged one, so leave out the others that move too.
+        const skipped = main.filter((c) => c.id !== id).slice(0, mainIndex).filter((c) => moving.has(c.id)).length
+        const rest = main.filter((c) => !moving.has(c.id))
+        const slot = Math.max(0, Math.min(rest.length, mainIndex - skipped))
+        const clips = [...rest.slice(0, slot), ...mainGroup.map((o) => o.clip), ...rest.slice(slot)]
+        next = { ...next, video: next.video.map((t, i) => (i ? t : { ...t, clips })) }
+      } else {
+        for (const o of mainGroup) next = removeClip(next, o.clip.id)
+        for (const o of mainGroup) next = placeOnLayer(next, o.clip, kind, trackIndex, start + o.start - before.start)
+      }
+    } else next = moveClip(next, id, kind, trackIndex, start, mainIndex)
     const after = findPlaced(next, id)
     const d = after && before ? after.start - before.start : 0
     for (const o of followers) next = placeOnLayer(next, o.clip, o.kind, o.trackIndex, o.start + d)
@@ -2455,6 +2544,12 @@ export default function App() {
             : <button onClick={() => { resetEditor(); setCurrentId(null); refreshProjects() }} title="Back to the projects, nothing changed">Cancel</button>}
         </div>
       )}
+      {lineKind && (
+        <div className="banner">
+          <span>{lineKind === 'line' ? 'Line' : 'Arrow'}: press where it starts on the picture and drag to where it ends. Hold Shift to keep it level, upright or at 45°.</span>
+          <button onClick={() => setLineKind(null)}>Cancel</button>
+        </div>
+      )}
       {drawingOn && (
         <div className="banner">
           <span>Drawing: drag on the picture. Each stroke is its own layer: click it later to change its colour or thickness.</span>
@@ -2576,6 +2671,9 @@ export default function App() {
               transform={showingSelected ? selectedTransform : null}
               boxDraw={boxFor && selected?.id === boxFor ? (x0, y0, x1, y1) => setTrackBox(boxFor, x0, y0, x1, y1) : undefined}
               freehand={drawingOn ? addStroke : undefined}
+              lineDraw={lineKind ? (x0, y0, x1, y1) => addLine(lineKind, x0, y0, x1, y1) : undefined}
+              lineEnds={selected?.kind === 'shape' && (selected.shape?.kind === 'line' || selected.shape?.kind === 'arrow')}
+              onDoubleAt={doubleAt}
               onLive={setTransformLive}
               pen={penFor && selected?.id === penFor && selected.mask && selectedTransform ? {
                 // Points are kept as fractions of the clip's box, so the shape moves and scales with the clip.
@@ -2856,7 +2954,7 @@ export default function App() {
                     <label className="slider-row">
                       <span>Zoom (hides edges)</span>
                       <input type="range" min={1} max={1.3} step={0.01} value={selected.stab.zoom} onChange={(e) => live((p) => updateSel(p, { stab: { ...selected.stab!, zoom: Number(e.target.value) } }))} onPointerUp={commitLive} />
-                      <span className="value">{Math.round((selected.stab.zoom - 1) * 100)}%</span>
+                      <span className="value" data-scale="0.01" data-offset="1">{Math.round((selected.stab.zoom - 1) * 100)}%</span>
                     </label>
                     <div className="light-buttons">
                       <button disabled={!!working} onClick={() => runStab(selected.id, selected.stab!.strength, selected.stab!.zoom)}>
@@ -2899,7 +2997,7 @@ export default function App() {
                     <label className="slider-row">
                       <span>{label}</span>
                       <input type="range" min={min} max={max} step={0.005} value={m[key]} onChange={(e) => setM({ [key]: Number(e.target.value) })} onPointerUp={commitLive} onKeyUp={commitLive} />
-                      <span className="value">{Math.round(m[key] * 100)}%</span>
+                      <span className="value" data-scale="0.01">{Math.round(m[key] * 100)}%</span>
                     </label>
                   )
                   return (
@@ -3044,6 +3142,7 @@ export default function App() {
         </div>
       </div>
       <Timeline
+        onDropFiles={(dt, at) => void addDropped(dt, at)}
         project={project}
         sources={sources}
         time={time}

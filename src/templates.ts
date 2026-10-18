@@ -18,35 +18,34 @@ function withText(frame: Frame, clips: Omit<Clip, 'id'>[]): Project {
   return { ...p, video: [...p.video, { id: newId('v'), kind: 'video' as const, clips: clips.map((c) => ({ ...c, id: newId('c') })) }] }
 }
 
+// Ours start in any frame shape, picked beside them in New project.
 export const BUILT_IN: Template[] = [
-  { id: 'blank', name: 'Blank, 9:16 (TikTok, Reels, Shorts)' },
-  { id: 'hook', name: 'Talking to camera, 9:16, with a hook title' },
-  { id: 'youtube', name: 'YouTube, 16:9, with an end card' },
-  { id: 'insta', name: 'Instagram post, 4:5' },
-  { id: 'square', name: 'Square, 1:1' },
+  { id: 'blank', name: 'Blank' },
+  { id: 'hook', name: 'Talking to camera, with a hook title' },
+  { id: 'endcard', name: 'With an end card' },
 ]
 
-export function fromBuiltIn(id: string): Project {
+export function fromBuiltIn(id: string, frame: Frame = frameOf('9:16')): Project {
+  const tall = frame.h > frame.w
   if (id === 'hook') {
-    const frame = frameOf('9:16')
     return withText(frame, [{
-      kind: 'text', start: 0, in: 0, out: 3, transform: box(frame, 0.2),
+      kind: 'text', start: 0, in: 0, out: 3, transform: box(frame, tall ? 0.2 : 0.16, tall ? 0.86 : 0.7),
       text: { ...DEFAULT_TEXT, text: 'Your hook here', size: 96, background: true, backgroundColor: '#000000', backgroundOpacity: 0.7, outlineWidth: 0 },
       anim: { in: 'pop', out: 'fade', duration: 0.3 },
     }])
   }
-  if (id === 'youtube') {
-    const frame = frameOf('16:9')
+  if (id === 'endcard' || id === 'youtube') {
     return withText(frame, [{
-      kind: 'text', start: 0, in: 0, out: 5, transform: box(frame, 0.5, 0.6),
+      kind: 'text', start: 0, in: 0, out: 5, transform: box(frame, 0.5, tall ? 0.86 : 0.6),
       text: { ...DEFAULT_TEXT, text: 'Thanks for watching\nSubscribe for more', size: 84 },
       anim: { in: 'fade', out: 'fade', duration: 0.5 },
     }])
   }
-  if (id === 'insta') return { ...emptyProject(), frame: frameOf('4:5') }
-  if (id === 'square') return { ...emptyProject(), frame: frameOf('1:1') }
-  return emptyProject()
+  return { ...emptyProject(), frame }
 }
+
+// A saved template keeps its own frame shape.
+export const templateFrame = (id: string): Frame | undefined => loadTemplates().find((t) => t.id === id)?.project?.frame
 
 const KEY = 'editor.templates'
 
@@ -76,9 +75,9 @@ export function deleteTemplate(id: string) {
 }
 
 // The project a new one starts as. A saved template gets fresh ids, so two projects made from it never share any.
-export function startFrom(id: string): Project {
+export function startFrom(id: string, frame?: Frame): Project {
   const own = loadTemplates().find((t) => t.id === id)
-  if (!own?.project) return fromBuiltIn(id)
+  if (!own?.project) return fromBuiltIn(id, frame)
   reserveIdsIn(own.project)
   const json = JSON.stringify(own.project).replace(/"(v|a|c|g|cap)(\d+)"/g, (_m, p: string) => `"${newId(p)}"`)
   return JSON.parse(json)

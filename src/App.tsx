@@ -107,6 +107,12 @@ function RailMore({ onOpen, title }: { onOpen: (x: number, y: number) => void; t
   )
 }
 
+
+// editor.postbarrel.com/teleprompter (its own page for search, built by scripts/teleprompter-page.mjs) and the
+// older ?teleprompter link both open straight on the teleprompter, skipping the welcome screen.
+const TELEPROMPTER_PAGE = window.location.pathname.replace(/\/+$/, '') === '/teleprompter'
+const OPEN_ON_TELEPROMPTER = new URLSearchParams(window.location.search).has('teleprompter') || TELEPROMPTER_PAGE
+
 export default function App() {
   const [sources, setSources] = useState<Source[]>([])
   const [history, setHistory] = useState<History>(() => ({ past: [], present: emptyProject(), future: [] }))
@@ -200,12 +206,12 @@ export default function App() {
   const [renamingTop, setRenamingTop] = useState(false)
   const [fileHandle, setFileHandle] = useState<ProjectHandle | null>(null)
   // editor.postbarrel.com/?teleprompter opens straight on the teleprompter (the "Use the free teleprompter" link).
-  const [mode, setMode] = useState<'edit' | 'prompt' | 'picture' | 'script'>(() => (new URLSearchParams(window.location.search).has('teleprompter') ? 'prompt' : 'edit'))
+  const [mode, setMode] = useState<'edit' | 'prompt' | 'picture' | 'script'>(() => (OPEN_ON_TELEPROMPTER ? 'prompt' : 'edit'))
   // Web version: the one saved edit waiting for Carry on or Start new, the Start new question, and the browser note.
   const [restorable, setRestorable] = useState<Saved | null>(null)
   const [askNew, setAskNew] = useState(false)
   // Web version: the first screen, download the app or use the browser. Skipped by the ?teleprompter link.
-  const [welcome, setWelcome] = useState(() => IS_WEB && !new URLSearchParams(window.location.search).has('teleprompter'))
+  const [welcome, setWelcome] = useState(() => IS_WEB && !OPEN_ON_TELEPROMPTER)
   // Stickers to pick from, and freehand drawing on the preview.
   const [stickersOpen, setStickersOpen] = useState(false)
   const [drawingOn, setDrawingOn] = useState(false)
@@ -425,9 +431,11 @@ export default function App() {
     }
   }
 
+  // On the teleprompter's own page, while the teleprompter is open, the title stays the page's own (for search)
   useEffect(() => {
-    document.title = `${projectName} · Postbarrel Vid Editor`
-  }, [projectName])
+    document.title =
+      TELEPROMPTER_PAGE && mode === 'prompt' ? 'Free online teleprompter | Postbarrel' : `${projectName} · Postbarrel Vid Editor`
+  }, [projectName, mode])
 
   // Writes the edit into its project file. If the file cannot be written, saving carries on in the browser only.
   async function writeToFile(h: ProjectHandle, snap: Saved) {
